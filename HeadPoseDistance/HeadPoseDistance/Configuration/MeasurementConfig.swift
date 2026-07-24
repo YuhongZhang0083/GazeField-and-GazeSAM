@@ -98,6 +98,21 @@ struct MeasurementConfig: Codable, Equatable {
     /// which movement is "excessive" (the stand/phone was rotated).
     var phoneAttitudeChangeExcessiveDegrees: Double = 3.0
 
+    // MARK: - Phone motion smoothing (PhoneStabilityFilter)
+
+    /// EMA smoothing factor for the phone rotation-rate and acceleration
+    /// magnitudes before stability classification. Lower = smoother / less
+    /// twitchy (0 < alpha <= 1).
+    var phoneMotionSmoothingAlpha: Double = 0.25
+
+    /// The smoothed signal must read excessive continuously for this long
+    /// before the filter reports `.excessive` (debounce-in).
+    var phoneExcessiveEnterSeconds: Double = 0.35
+
+    /// Once excessive, the signal must read calm continuously for this long
+    /// before the verdict is released (debounce-out / hysteresis).
+    var phoneExcessiveExitSeconds: Double = 0.7
+
     // MARK: - Recording protocol timing (legacy)
 
     /// Legacy fixed-schedule hold time. No longer drives stage progression —

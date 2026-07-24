@@ -431,7 +431,10 @@ struct CenterGuidanceOverlay: View {
         case .recording, .paused:
             return snapshot.guidance?.instruction ?? ""
         default:
-            return "Keep your eyes on the red dot"
+            // No standing instruction here — the setup buttons and the
+            // head-position boundary provide guidance, and the fixation dot
+            // needs no caption.
+            return ""
         }
     }
 

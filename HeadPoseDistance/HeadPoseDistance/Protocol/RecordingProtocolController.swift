@@ -21,17 +21,17 @@ enum ProtocolPhase: String, Codable, CaseIterable {
     /// head-movement instruction, never as a place to look.
     var instruction: String {
         switch self {
-        case .idle: return "Look at the red dot"
-        case .neutralCapture: return "Look at the red dot and hold your head still"
-        case .center: return "Return your head to center — keep looking at the red dot"
-        case .up: return "Slowly rotate your head UP — keep your eyes on the red dot"
-        case .down: return "Slowly rotate your head DOWN — keep your eyes on the red dot"
-        case .left: return "Slowly turn your head LEFT — keep your eyes on the red dot"
-        case .right: return "Slowly turn your head RIGHT — keep your eyes on the red dot"
-        case .upperLeft: return "Rotate your head UPPER-LEFT — keep your eyes on the red dot"
-        case .upperRight: return "Rotate your head UPPER-RIGHT — keep your eyes on the red dot"
-        case .lowerLeft: return "Rotate your head LOWER-LEFT — keep your eyes on the red dot"
-        case .lowerRight: return "Rotate your head LOWER-RIGHT — keep your eyes on the red dot"
+        case .idle: return "Ready"
+        case .neutralCapture: return "Hold your head still"
+        case .center: return "Return your head to center"
+        case .up: return "Slowly rotate your head UP"
+        case .down: return "Slowly rotate your head DOWN"
+        case .left: return "Slowly turn your head LEFT"
+        case .right: return "Slowly turn your head RIGHT"
+        case .upperLeft: return "Rotate your head UPPER-LEFT"
+        case .upperRight: return "Rotate your head UPPER-RIGHT"
+        case .lowerLeft: return "Rotate your head LOWER-LEFT"
+        case .lowerRight: return "Rotate your head LOWER-RIGHT"
         case .complete: return "Done — recording complete"
         }
     }

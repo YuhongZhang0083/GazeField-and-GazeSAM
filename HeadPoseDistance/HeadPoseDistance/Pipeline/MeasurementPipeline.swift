@@ -15,6 +15,7 @@ final class MeasurementPipeline {
     let queue: DispatchQueue
     private(set) var config: MeasurementConfig
     private let motionMonitor: DeviceMotionMonitor
+    private let stabilityFilter = PhoneStabilityFilter()
     private let convention = HeadPoseConvention.default
 
     // MARK: Outputs (invoked on the main queue)
@@ -310,14 +311,16 @@ final class MeasurementPipeline {
             }
         }
 
-        // Phone motion.
+        // Phone motion — smoothed + debounced so isolated Core Motion spikes
+        // don't flash "excessive" and needlessly pause the protocol.
         let motion = motionMonitor.latest()
         let stability: PhoneStability
         if let m = motion {
-            stability = DeviceMotionMonitor.stability(
+            stability = stabilityFilter.update(
                 rotationRateMagnitude: m.rotationRateMagnitude,
                 accelerationMagnitude: m.userAccelerationMagnitude,
                 attitudeChangeDegrees: m.attitudeChangeFromReferenceDegrees,
+                timestamp: frameTime,
                 config: config)
         } else {
             stability = .unknown
