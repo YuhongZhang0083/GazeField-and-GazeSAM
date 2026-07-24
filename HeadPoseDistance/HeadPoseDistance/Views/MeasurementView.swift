@@ -24,19 +24,27 @@ struct MeasurementView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                // Guidance is drawn around — never over — the dot.
+                // Virtual head + head-position boundary, co-located with the
+                // fixation dot so the head representation is exactly where the
+                // participant looks — no gaze pull toward a top-of-screen oval.
+                // Dimmed during recording so the red dot stays dominant.
+                CenteredHeadBoundary(snapshot: viewModel.snapshot,
+                                     dimmed: viewModel.snapshot.stage == .recording)
+                    .position(center)
+
+                // Guidance ring / arrows / text, drawn around — never over —
+                // the dot.
                 CenterGuidanceOverlay(snapshot: viewModel.snapshot)
                     .position(center)
 
-                // The single fixed fixation target, topmost at the center.
-                // Its position depends only on screen geometry, never on
-                // instruction or guidance state.
+                // The single fixed fixation target, topmost at the center and
+                // overlaid on top of the virtual head. Its position depends
+                // only on screen geometry, never on guidance state.
                 CenterDotView(diameter: viewModel.config.dotDiameterPoints)
                     .position(center)
 
                 VStack(spacing: 0) {
                     statusHeader
-                    topPanel
                     Spacer(minLength: 0)
                     if showsReadouts {
                         measurementPanel
@@ -68,12 +76,14 @@ struct MeasurementView: View {
         }
     }
 
-    /// The dense numeric panel is a setup aid; it disappears during recording
-    /// so the screen stays quiet around the fixation dot.
+    /// The dense numeric panel is a positioning aid, shown only before
+    /// recording. During recording/paused/neutral-capture it is hidden so
+    /// nothing crowds the centered dot (and so the centered instruction text
+    /// never overlaps it).
     private var showsReadouts: Bool {
         switch viewModel.snapshot.stage {
-        case .recording, .capturingNeutral: return false
-        default: return true
+        case .preview, .neutralReady: return true
+        default: return false
         }
     }
 
@@ -143,14 +153,6 @@ struct MeasurementView: View {
             .padding(.vertical, 4)
             .background(Capsule().fill(color.opacity(0.22)))
             .foregroundStyle(color)
-    }
-
-    // MARK: - Top panel: virtual head + alignment boundary
-
-    private var topPanel: some View {
-        AlignmentBoundaryPanel(snapshot: viewModel.snapshot,
-                               dimmed: viewModel.snapshot.stage == .recording)
-            .padding(.top, 2)
     }
 
     // MARK: - Measurement panel (setup aid)
@@ -296,12 +298,12 @@ struct MeasurementView: View {
 struct CenterGuidanceOverlay: View {
     let snapshot: MeasurementSnapshot
 
-    /// Radius of the hold-progress ring (centered on the dot).
-    private let ringRadius: CGFloat = 46
-    /// Distance of the directional arrow from the dot.
-    private let arrowRadius: CGFloat = 108
+    /// Radius of the hold-progress ring — encircles the centered head/oval.
+    private let ringRadius: CGFloat = 104
+    /// Distance of the directional arrow from the dot (outside ring + oval).
+    private let arrowRadius: CGFloat = 136
     /// Vertical offset of the instruction text below the dot.
-    private let textOffset: CGFloat = 168
+    private let textOffset: CGFloat = 176
 
     var body: some View {
         ZStack {
@@ -309,26 +311,35 @@ struct CenterGuidanceOverlay: View {
             arrowLayer
             textLayer
         }
-        .frame(width: 2 * (arrowRadius + 60), height: 2 * (arrowRadius + 90))
+        .frame(width: 2 * (arrowRadius + 50), height: 2 * (arrowRadius + 70))
     }
 
     // MARK: Ring
 
-    /// Thin progress ring around the dot: fills while a hold is in progress
-    /// (target pose or neutral). Also doubles as the neutral-capture progress
-    /// indicator so the eyes never need to leave the dot during capture.
+    /// Thin progress ring encircling the head/oval: fills while a hold is in
+    /// progress (target pose or neutral) and shows neutral-capture progress,
+    /// so the eyes never need to leave the dot. Hidden before recording.
     @ViewBuilder
     private var holdRing: some View {
-        let progress = ringProgress
-        Circle()
-            .stroke(Color.white.opacity(0.15), lineWidth: 3)
-            .frame(width: ringRadius * 2, height: ringRadius * 2)
-        Circle()
-            .trim(from: 0, to: progress)
-            .stroke(ringColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-            .frame(width: ringRadius * 2, height: ringRadius * 2)
-            .rotationEffect(.degrees(-90))
-            .animation(.linear(duration: 0.1), value: progress)
+        if showsRing {
+            let progress = ringProgress
+            Circle()
+                .stroke(Color.white.opacity(0.12), lineWidth: 3)
+                .frame(width: ringRadius * 2, height: ringRadius * 2)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(ringColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .frame(width: ringRadius * 2, height: ringRadius * 2)
+                .rotationEffect(.degrees(-90))
+                .animation(.linear(duration: 0.1), value: progress)
+        }
+    }
+
+    private var showsRing: Bool {
+        switch snapshot.stage {
+        case .capturingNeutral, .recording, .paused: return true
+        default: return false
+        }
     }
 
     private var ringProgress: Double {
@@ -477,6 +488,71 @@ struct DirectionChecklist: View {
     }
 }
 
+/// Virtual head + head-position boundary, centered so it sits directly under
+/// the fixation dot (drawn on top by `MeasurementView`). This co-location is
+/// deliberate: the participant looks at the red dot and their head
+/// representation is right there, instead of being pulled up to a
+/// top-of-screen oval (which biased the neutral pitch baseline).
+///
+/// The oval is a FIXED frame that the head should fill at the right distance;
+/// it never moves. The head inside rotates/shifts/scales with measured
+/// tracking data only.
+struct CenteredHeadBoundary: View {
+    let snapshot: MeasurementSnapshot
+    /// Dimmed during recording so the red dot stays the dominant element.
+    var dimmed: Bool
+
+    // The oval frames the head with margin at the neutral distance; the head
+    // scales up/down within it as the face moves closer/farther.
+    private let ovalSize = CGSize(width: 150, height: 188)
+    private let headSize = CGSize(width: 128, height: 150)
+
+    var body: some View {
+        ZStack {
+            Ellipse()
+                .stroke(boundaryColor.opacity(0.9),
+                        style: StrokeStyle(lineWidth: 2, dash: aligned ? [] : [5, 4]))
+                .frame(width: ovalSize.width, height: ovalSize.height)
+
+            VirtualHeadView(
+                yawDegrees: snapshot.relativeEuler?.yawDegrees ?? 0,
+                pitchDegrees: snapshot.relativeEuler?.pitchDegrees ?? 0,
+                rollDegrees: snapshot.relativeEuler?.rollDegrees ?? 0,
+                userRightOffsetMeters: snapshot.alignment.userRightOffsetMeters,
+                userUpOffsetMeters: snapshot.alignment.userUpOffsetMeters,
+                distanceDeviationMeters: snapshot.distanceDeviationMeters,
+                faceTracked: snapshot.faceTracked)
+                .frame(width: headSize.width, height: headSize.height)
+
+            // Alignment cue sits ABOVE the oval so it never overlaps the dot.
+            if let cue = cueText {
+                Text(cue)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(aligned ? Color.secondary : Color.orange)
+                    .offset(y: -(ovalSize.height / 2) - 18)
+            }
+        }
+        .opacity(dimmed ? 0.5 : 1.0)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Head position: \(cueText ?? "aligned")")
+    }
+
+    private var aligned: Bool { snapshot.alignment.isAligned }
+
+    private var boundaryColor: Color {
+        if !snapshot.faceTracked { return .red }
+        return aligned ? .green : .orange
+    }
+
+    /// Correction cue. During recording it stays silent while aligned so it
+    /// doesn't nag; during setup it always shows so the user can position.
+    private var cueText: String? {
+        if snapshot.stage == .recording, aligned { return nil }
+        return snapshot.alignment.cue
+    }
+}
+
 /// The single fixed circular fixation target. High-contrast red on black,
 /// 16–20 pt diameter, no positional animation, no secondary dots.
 struct CenterDotView: View {
@@ -487,6 +563,8 @@ struct CenterDotView: View {
             .fill(Color.red)
             .frame(width: diameter, height: diameter)
             .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1.5))
+            // A soft dark halo keeps the dot readable over the virtual head.
+            .shadow(color: .black.opacity(0.8), radius: 5)
             .accessibilityLabel("Fixation dot")
     }
 }

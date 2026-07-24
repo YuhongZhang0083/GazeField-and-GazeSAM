@@ -185,32 +185,38 @@ Key thresholds (all in `MeasurementConfig`): `targetAngleDegrees` 20°,
 
 The normal measurement workflow shows **no live camera image** — the optional
 camera preview lives only in the developer debug view (wrench icon) and is
-disabled by default. The measurement screen is, back to front:
+disabled by default. Everything is **concentric with the fixation dot**, back
+to front:
 
 1. Black background.
-2. **Center guidance ring**, arranged AROUND the fixed red dot so the
-   participant never needs to shift gaze: a hold-progress ring (radius
-   ~46 pt), one directional arrow at a fixed radial position (head-movement
-   direction, never gaze direction; four inward chevrons for
-   return-to-center), and one short instruction line just below
-   ("Slowly turn your head left", "Hold", "Return to center", "Move more
-   slowly", "Phone moved — hold it still", "Move closer", "Move farther").
-   Every element has a fixed position; only colour, text, and ring fill
-   change.
-3. **The single fixed red dot**, topmost at the exact screen center. Its
-   position depends only on screen geometry — never on guidance state.
-4. **Virtual head panel** (top of screen, below the status chips): a generic
-   procedurally-built 3D head (SceneKit ellipsoid + nose + ear hints — no
-   ARKit face geometry, no camera texture, nothing identifying, nothing
-   persisted) that rotates in real time with the neutral-relative
-   yaw/pitch/roll (`VirtualHeadOrientation`, mirror semantics), shifts with
-   the measured lateral face offset, scales with distance deviation, and
-   fades to a ghost state when tracking is lost. A **fixed dashed oval**
-   around it is the head-position boundary: keep the head inside the oval at
-   the right size and the oval turns green. Cues: "Move closer", "Move
-   farther", "Move left/right/up/down", "Hold position".
+2. **Virtual head + head-position boundary**, centered on the dot
+   (`CenteredHeadBoundary`). A generic procedurally-built 3D head (SceneKit
+   ellipsoid + nose + ear hints — no ARKit face geometry, no camera texture,
+   nothing identifying, nothing persisted) rotates in real time with the
+   neutral-relative yaw/pitch/roll (`VirtualHeadOrientation`, mirror
+   semantics), shifts with the measured lateral face offset, scales with
+   distance deviation, and fades to a ghost state when tracking is lost. A
+   **fixed dashed oval** frames it: keep the head inside the oval at the right
+   size and it turns green. Because the head sits *directly under the dot*,
+   the participant fixates the dot and their head representation is right
+   there — it is NOT parked at the top of the screen (an earlier layout that
+   pulled gaze upward and biased the neutral pitch baseline). Dimmed during
+   recording so the dot dominates.
+3. **Center guidance ring**, arranged AROUND the dot/oval so the participant
+   never shifts gaze: a hold-progress ring encircling the oval, one
+   directional arrow at a fixed radial position (head-movement direction,
+   never gaze direction; four inward chevrons for return-to-center), and one
+   short instruction line just below ("Slowly turn your head left", "Hold",
+   "Return to center", "Move more slowly", "Phone moved — hold it still").
+   The alignment cue ("Move closer / farther / left / right / up / down")
+   sits just above the oval. Every element has a fixed position; only colour,
+   text, and ring fill change.
+4. **The single fixed red dot**, topmost, overlaid on the head's center at the
+   exact screen center. Its position depends only on screen geometry — never
+   on guidance state.
 5. **Bottom bar** (far from the dot): 8-arrow completion checklist,
-   `Stage n of 8`, elapsed time, accepted/rejected counts, controls.
+   `Stage n of 8`, elapsed time, accepted/rejected counts, controls. The dense
+   numeric readout panel appears only during pre-recording setup.
 
 Haptics: a light tap when the head first enters the target zone (hold
 started), a success buzz when a stage genuinely completes — feedback that

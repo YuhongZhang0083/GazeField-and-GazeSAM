@@ -141,52 +141,5 @@ private extension Float {
     }
 }
 
-/// The fixed head-position boundary drawn around the virtual head, plus the
-/// alignment cue. The oval is a static frame (never moves); the virtual head
-/// moves/scales inside it based on measured tracking data only.
-struct AlignmentBoundaryPanel: View {
-    let snapshot: MeasurementSnapshot
-    /// Dimmed during recording so it never competes with the fixation dot.
-    var dimmed: Bool
-
-    var body: some View {
-        VStack(spacing: 4) {
-            ZStack {
-                // Fixed target boundary.
-                Ellipse()
-                    .stroke(boundaryColor.opacity(0.9),
-                            style: StrokeStyle(lineWidth: 2, dash: aligned ? [] : [5, 4]))
-                    .frame(width: 74, height: 96)
-
-                VirtualHeadView(
-                    yawDegrees: snapshot.relativeEuler?.yawDegrees ?? 0,
-                    pitchDegrees: snapshot.relativeEuler?.pitchDegrees ?? 0,
-                    rollDegrees: snapshot.relativeEuler?.rollDegrees ?? 0,
-                    userRightOffsetMeters: snapshot.alignment.userRightOffsetMeters,
-                    userUpOffsetMeters: snapshot.alignment.userUpOffsetMeters,
-                    distanceDeviationMeters: snapshot.distanceDeviationMeters,
-                    faceTracked: snapshot.faceTracked)
-                    .frame(width: 120, height: 130)
-            }
-
-            Text(cueText)
-                .font(.caption2.weight(aligned ? .regular : .semibold))
-                .foregroundStyle(aligned ? .secondary : Color.orange)
-                .lineLimit(1)
-        }
-        .opacity(dimmed ? 0.65 : 1.0)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Head position: \(cueText)")
-    }
-
-    private var aligned: Bool { snapshot.alignment.isAligned }
-
-    private var boundaryColor: Color {
-        if !snapshot.faceTracked { return .red }
-        return aligned ? .green : .orange
-    }
-
-    private var cueText: String {
-        snapshot.alignment.cue ?? "Hold position"
-    }
-}
+// The head-position boundary is composed in `MeasurementView`
+// (`CenteredHeadBoundary`) so it can be centered on the fixation dot.
