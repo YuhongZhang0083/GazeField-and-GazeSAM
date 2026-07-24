@@ -323,6 +323,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9FKV382FQM;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the front TrueDepth camera to measure face distance and head orientation.";
@@ -349,6 +350,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9FKV382FQM;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the front TrueDepth camera to measure face distance and head orientation.";

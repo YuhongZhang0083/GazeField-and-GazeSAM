@@ -27,7 +27,9 @@ xcuserdata/
 # Exported session data / measurements — never commit
 *.csv
 *.json
+# ...but keep project-structure JSON (Xcode project + asset catalogs).
 !*.xcodeproj/**/*.json
+!**/*.xcassets/**/*.json
 exports/
 sessions/
 
