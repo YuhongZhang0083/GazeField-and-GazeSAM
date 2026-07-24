@@ -194,8 +194,8 @@ metadata. Everything is **concentric with that dot**, back to front:
 1. Black background.
 2. **Virtual head + head-position boundary**, centered on the dot
    (`CenteredHeadBoundary`). A generic procedurally-built 3D head (SceneKit
-   ellipsoid skull + nose, two eyes, a mouth, and ear hints — no ARKit face
-   geometry, no camera texture, nothing identifying, nothing persisted)
+   ellipsoid skull + nose and ear hints — no ARKit face geometry, no camera
+   texture, nothing identifying, nothing persisted)
    rotates in real time with the neutral-relative yaw/pitch/roll
    (`VirtualHeadOrientation`, mirror semantics), shifts with the measured
    lateral face offset, scales with distance deviation, and fades to a ghost
