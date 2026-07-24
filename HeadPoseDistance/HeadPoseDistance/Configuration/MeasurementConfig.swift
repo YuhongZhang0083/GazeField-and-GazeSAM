@@ -218,7 +218,7 @@ struct MeasurementConfig: Codable, Equatable {
     /// the downward eye posture a screen-center dot would cause. The actual
     /// dot position is reported to the pipeline and exported in the session
     /// metadata (`dotCenterXPoints`/`dotCenterYPoints`).
-    var dotAnchorYFraction: Double = 0.30
+    var dotAnchorYFraction: Double = 0.26
 
     static let `default` = MeasurementConfig()
 }

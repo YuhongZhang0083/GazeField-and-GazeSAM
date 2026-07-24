@@ -41,6 +41,31 @@ final class PhoneStabilityFilterTests: XCTestCase {
         XCTAssertEqual(verdict, .stable)
     }
 
+    /// Regression: a still phone that is merely tilted away from the
+    /// recording-start reference (large attitude change, but zero rotation and
+    /// acceleration) must read STABLE, not excessive. Previously the attitude
+    /// term produced a permanent "Excessive Phone Movement".
+    func testStillButTiltedPhoneIsStable() {
+        let filter = PhoneStabilityFilter()
+        let verdict = feed(filter, from: 0, duration: 1.0,
+                           rotation: calmRotation, accel: 0,
+                           attitude: config.phoneAttitudeChangeExcessiveDegrees * 10)
+        XCTAssertEqual(verdict, .stable,
+                       "a stationary phone must never be flagged as moving")
+    }
+
+    func testStabilityClassificationIgnoresAttitude() {
+        // Same motion, wildly different attitude → identical verdict.
+        let withoutTilt = DeviceMotionMonitor.stability(
+            rotationRateMagnitude: 0, accelerationMagnitude: 0,
+            attitudeChangeDegrees: 0, config: config)
+        let withTilt = DeviceMotionMonitor.stability(
+            rotationRateMagnitude: 0, accelerationMagnitude: 0,
+            attitudeChangeDegrees: 45, config: config)
+        XCTAssertEqual(withoutTilt, .stable)
+        XCTAssertEqual(withTilt, .stable)
+    }
+
     /// A spike shorter than the enter-dwell must NOT be reported as excessive.
     func testBriefSpikeDoesNotTripExcessive() {
         let filter = PhoneStabilityFilter()

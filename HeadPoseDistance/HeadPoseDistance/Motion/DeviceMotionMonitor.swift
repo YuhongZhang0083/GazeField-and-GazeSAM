@@ -105,13 +105,24 @@ final class DeviceMotionMonitor {
 
     /// Classifies phone stability from a snapshot using configured thresholds.
     /// Pure function, unit-testable.
+    ///
+    /// The verdict is based on **actual motion** — rotation rate and user
+    /// acceleration — only. Attitude drift from the recording-start reference
+    /// is deliberately NOT part of it: a phone that is repositioned and then
+    /// held still has near-zero rotation and acceleration but a non-zero
+    /// attitude offset, and folding that offset in produced a permanent
+    /// "Excessive Phone Movement" that never cleared and dead-locked the
+    /// guided pause. The attitude change is still recorded on every sample
+    /// (`phoneAttitudeChangeDegrees`) and shown in the debug view for offline
+    /// data-quality analysis; it simply no longer labels a stationary phone as
+    /// moving. `attitudeChangeDegrees` is retained in the signature for that
+    /// recording path and for callers that pass it through.
     static func stability(rotationRateMagnitude: Double,
                           accelerationMagnitude: Double,
                           attitudeChangeDegrees: Double?,
                           config: MeasurementConfig) -> PhoneStability {
         if rotationRateMagnitude > config.phoneRotationRateExcessiveRadPerSec
-            || accelerationMagnitude > config.phoneAccelerationExcessiveG
-            || (attitudeChangeDegrees ?? 0) > config.phoneAttitudeChangeExcessiveDegrees {
+            || accelerationMagnitude > config.phoneAccelerationExcessiveG {
             return .excessive
         }
         if rotationRateMagnitude > config.phoneRotationRateMinorRadPerSec
