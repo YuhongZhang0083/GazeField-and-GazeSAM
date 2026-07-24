@@ -75,12 +75,15 @@ final class VirtualHeadOrientationTests: XCTestCase {
         XCTAssertEqual(forward.z, 1, accuracy: accuracy)
     }
 
-    /// The head node must exist and carry a nose (forward indicator) — the
-    /// visualization is generic geometry, not ARKit face geometry.
+    /// The head node must exist and carry a nose (forward indicator) plus the
+    /// friendly face features — generic geometry, not ARKit face geometry.
     func testHeadNodeIsGenericWithForwardIndicator() {
         let head = VirtualHeadView.makeHeadNode()
         XCTAssertEqual(head.name, "head")
         XCTAssertNotNil(head.childNode(withName: "nose", recursively: false))
+        XCTAssertNotNil(head.childNode(withName: "eyeLeft", recursively: false))
+        XCTAssertNotNil(head.childNode(withName: "eyeRight", recursively: false))
+        XCTAssertNotNil(head.childNode(withName: "mouth", recursively: false))
         XCTAssertGreaterThanOrEqual(head.childNodes.count, 3)
     }
 }

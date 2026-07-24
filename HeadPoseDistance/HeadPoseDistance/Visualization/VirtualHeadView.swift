@@ -73,7 +73,11 @@ struct VirtualHeadView: UIViewRepresentable {
 
         let camera = SCNCamera()
         camera.usesOrthographicProjection = true
-        camera.orthographicScale = 1.0
+        // Half-height of the visible area in scene units. The head is ~1.05
+        // units tall, so 0.68 makes it fill ~77% of the view instead of the
+        // ~52% that scale 1.0 gave (which made the head look lost inside the
+        // boundary oval).
+        camera.orthographicScale = 0.68
         let cameraNode = SCNNode()
         cameraNode.camera = camera
         cameraNode.position = SCNVector3(0, 0, 4)
@@ -96,36 +100,64 @@ struct VirtualHeadView: UIViewRepresentable {
         return scene
     }
 
-    /// Deliberately generic: an ellipsoid skull, a simple nose so the facing
-    /// direction is obvious, and two ear hints for lateral orientation.
+    /// Deliberately generic — an ellipsoid skull with simple cartoon-like
+    /// features (nose, eyes, mouth, ears) so the head reads as friendly and
+    /// its facing direction is unmistakable, while resembling nobody.
     static func makeHeadNode() -> SCNNode {
         let head = SCNNode()
         head.name = "head"
 
-        let material = SCNMaterial()
-        material.diffuse.contents = UIColor(white: 0.72, alpha: 1.0)
-        material.roughness.contents = 0.7
+        let skin = SCNMaterial()
+        skin.diffuse.contents = UIColor(white: 0.72, alpha: 1.0)
+        skin.roughness.contents = 0.7
+
+        let feature = SCNMaterial()
+        feature.diffuse.contents = UIColor(white: 0.20, alpha: 1.0)
+        feature.roughness.contents = 0.6
 
         let skullGeometry = SCNSphere(radius: 0.5)
         skullGeometry.segmentCount = 32
-        skullGeometry.materials = [material]
+        skullGeometry.materials = [skin]
         let skull = SCNNode(geometry: skullGeometry)
         skull.simdScale = SIMD3<Float>(0.80, 1.05, 0.85)
         head.addChildNode(skull)
 
         // Nose: unmistakable forward (+Z) indicator.
         let noseGeometry = SCNCone(topRadius: 0.0, bottomRadius: 0.09, height: 0.28)
-        noseGeometry.materials = [material]
+        noseGeometry.materials = [skin]
         let nose = SCNNode(geometry: noseGeometry)
         nose.position = SCNVector3(0, -0.02, 0.46)
         nose.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
         nose.name = "nose"
         head.addChildNode(nose)
 
+        // Eyes: two dark discs slightly above the nose line.
+        for (name, side) in [("eyeLeft", Float(-1)), ("eyeRight", Float(1))] {
+            let eyeGeometry = SCNSphere(radius: 0.055)
+            eyeGeometry.materials = [feature]
+            let eye = SCNNode(geometry: eyeGeometry)
+            eye.position = SCNVector3(side * 0.17, 0.12, 0.40)
+            // Flatten into the face so they read as discs, not bulges.
+            eye.simdScale = SIMD3<Float>(1.0, 1.15, 0.45)
+            eye.name = name
+            head.addChildNode(eye)
+        }
+
+        // Mouth: a soft horizontal capsule below the nose.
+        let mouthGeometry = SCNCapsule(capRadius: 0.035, height: 0.26)
+        mouthGeometry.materials = [feature]
+        let mouth = SCNNode(geometry: mouthGeometry)
+        mouth.position = SCNVector3(0, -0.24, 0.40)
+        // Capsule's long axis is Y; lay it horizontally, flattened into the face.
+        mouth.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
+        mouth.simdScale = SIMD3<Float>(1.0, 1.0, 0.45)
+        mouth.name = "mouth"
+        head.addChildNode(mouth)
+
         // Ear hints.
         for side: Float in [-1, 1] {
             let earGeometry = SCNSphere(radius: 0.09)
-            earGeometry.materials = [material]
+            earGeometry.materials = [skin]
             let ear = SCNNode(geometry: earGeometry)
             ear.position = SCNVector3(side * 0.42, 0, 0)
             head.addChildNode(ear)

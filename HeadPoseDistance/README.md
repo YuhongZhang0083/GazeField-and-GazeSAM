@@ -181,27 +181,31 @@ Key thresholds (all in `MeasurementConfig`): `targetAngleDegrees` 20°,
 `centerToleranceDegrees` 5°, `maxOffAxisDegrees` 12°,
 `wrongDirectionThresholdDegrees` 8°.
 
-## Center-anchored guidance (no camera video)
+## Dot-anchored guidance (no camera video)
 
 The normal measurement workflow shows **no live camera image** — the optional
 camera preview lives only in the developer debug view (wrench icon) and is
-disabled by default. Everything is **concentric with the fixation dot**, back
-to front:
+disabled by default. The fixation dot is anchored in the **upper third of the
+screen** (`dotAnchorYFraction`, default 0.30), close to the TrueDepth camera:
+fixating there keeps the gaze line near the camera axis (better tracking, no
+downward eye posture) and the dot's true position is recorded in the session
+metadata. Everything is **concentric with that dot**, back to front:
 
 1. Black background.
 2. **Virtual head + head-position boundary**, centered on the dot
    (`CenteredHeadBoundary`). A generic procedurally-built 3D head (SceneKit
-   ellipsoid + nose + ear hints — no ARKit face geometry, no camera texture,
-   nothing identifying, nothing persisted) rotates in real time with the
-   neutral-relative yaw/pitch/roll (`VirtualHeadOrientation`, mirror
-   semantics), shifts with the measured lateral face offset, scales with
-   distance deviation, and fades to a ghost state when tracking is lost. A
-   **fixed dashed oval** frames it: keep the head inside the oval at the right
-   size and it turns green. Because the head sits *directly under the dot*,
-   the participant fixates the dot and their head representation is right
-   there — it is NOT parked at the top of the screen (an earlier layout that
-   pulled gaze upward and biased the neutral pitch baseline). Dimmed during
-   recording so the dot dominates.
+   ellipsoid skull + nose, two eyes, a mouth, and ear hints — no ARKit face
+   geometry, no camera texture, nothing identifying, nothing persisted)
+   rotates in real time with the neutral-relative yaw/pitch/roll
+   (`VirtualHeadOrientation`, mirror semantics), shifts with the measured
+   lateral face offset, scales with distance deviation, and fades to a ghost
+   state when tracking is lost. A **fixed dashed oval** hugs it (head fills
+   ~77% of its frame at the neutral distance): keep the head inside the oval
+   at the right size and it turns green. Because the head sits *directly under
+   the dot*, the participant fixates the dot and their head representation is
+   right there — it is NOT parked elsewhere on the screen (an earlier layout
+   put it at the top, which pulled gaze upward and biased the neutral pitch
+   baseline). Dimmed during recording so the dot dominates.
 3. **Center guidance ring**, arranged AROUND the dot/oval so the participant
    never shifts gaze: a hold-progress ring encircling the oval, one
    directional arrow at a fixed radial position (head-movement direction,
@@ -212,7 +216,7 @@ to front:
    sits just above the oval. Every element has a fixed position; only colour,
    text, and ring fill change.
 4. **The single fixed red dot**, topmost, overlaid on the head's center at the
-   exact screen center. Its position depends only on screen geometry — never
+   upper-third anchor. Its position depends only on screen geometry — never
    on guidance state.
 5. **Bottom bar** (far from the dot): 8-arrow completion checklist,
    `Stage n of 8`, elapsed time, accepted/rejected counts, controls. The dense

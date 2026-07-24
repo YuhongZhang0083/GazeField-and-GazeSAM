@@ -19,29 +19,34 @@ struct MeasurementView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let center = CGPoint(x: geometry.size.width / 2,
-                                 y: geometry.size.height / 2)
+            // The fixation anchor sits in the upper third of the screen,
+            // close to the TrueDepth camera: fixating there keeps the gaze
+            // line near the camera axis and matches where the head/oval
+            // cluster is drawn, so there is no gaze pull away from the dot.
+            let anchor = CGPoint(
+                x: geometry.size.width / 2,
+                y: geometry.size.height * viewModel.config.dotAnchorYFraction)
             ZStack {
                 Color.black.ignoresSafeArea()
 
                 // Virtual head + head-position boundary, co-located with the
-                // fixation dot so the head representation is exactly where the
-                // participant looks — no gaze pull toward a top-of-screen oval.
-                // Dimmed during recording so the red dot stays dominant.
+                // fixation dot. Dimmed during recording so the red dot stays
+                // dominant.
                 CenteredHeadBoundary(snapshot: viewModel.snapshot,
                                      dimmed: viewModel.snapshot.stage == .recording)
-                    .position(center)
+                    .position(anchor)
 
                 // Guidance ring / arrows / text, drawn around — never over —
                 // the dot.
                 CenterGuidanceOverlay(snapshot: viewModel.snapshot)
-                    .position(center)
+                    .position(anchor)
 
-                // The single fixed fixation target, topmost at the center and
-                // overlaid on top of the virtual head. Its position depends
-                // only on screen geometry, never on guidance state.
+                // The single fixed fixation target, topmost, overlaid on the
+                // head's center. Its position depends only on screen geometry
+                // and the configured anchor fraction — never on guidance
+                // state.
                 CenterDotView(diameter: viewModel.config.dotDiameterPoints)
-                    .position(center)
+                    .position(anchor)
 
                 VStack(spacing: 0) {
                     statusHeader
@@ -53,9 +58,15 @@ struct MeasurementView: View {
                 }
             }
             .onAppear {
+                // Report the ACTUAL on-screen dot position (global
+                // coordinates) — this is what gets recorded in the session
+                // metadata, so it must match the rendered anchor exactly.
                 let frame = geometry.frame(in: .global)
                 viewModel.reportScreenGeometry(
-                    dotCenterGlobal: CGPoint(x: frame.midX, y: frame.midY),
+                    dotCenterGlobal: CGPoint(
+                        x: frame.midX,
+                        y: frame.minY + frame.height
+                            * viewModel.config.dotAnchorYFraction),
                     screenSize: geometry.size,
                     scale: UITraitCollection.current.displayScale)
             }
@@ -502,10 +513,12 @@ struct CenteredHeadBoundary: View {
     /// Dimmed during recording so the red dot stays the dominant element.
     var dimmed: Bool
 
-    // The oval frames the head with margin at the neutral distance; the head
-    // scales up/down within it as the face moves closer/farther.
-    private let ovalSize = CGSize(width: 150, height: 188)
-    private let headSize = CGSize(width: 128, height: 150)
+    // The oval hugs the head with a small margin at the neutral distance
+    // (the head fills ~85% of its frame — see VirtualHeadView's
+    // orthographicScale); moving closer/farther scales the head so it
+    // overflows or shrinks inside the fixed oval.
+    private let ovalSize = CGSize(width: 136, height: 154)
+    private let headSize = CGSize(width: 150, height: 168)
 
     var body: some View {
         ZStack {
@@ -524,12 +537,13 @@ struct CenteredHeadBoundary: View {
                 faceTracked: snapshot.faceTracked)
                 .frame(width: headSize.width, height: headSize.height)
 
-            // Alignment cue sits ABOVE the oval so it never overlaps the dot.
+            // Alignment cue sits ABOVE the hold ring (radius 104 in
+            // CenterGuidanceOverlay) so it overlaps neither dot nor ring.
             if let cue = cueText {
                 Text(cue)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(aligned ? Color.secondary : Color.orange)
-                    .offset(y: -(ovalSize.height / 2) - 18)
+                    .offset(y: -122)
             }
         }
         .opacity(dimmed ? 0.5 : 1.0)

@@ -211,5 +211,14 @@ struct MeasurementConfig: Codable, Equatable {
     /// Diameter of the fixed central fixation dot, in points (16–20 pt spec).
     var dotDiameterPoints: Double = 18.0
 
+    /// Vertical position of the fixation dot (and the head/oval cluster
+    /// centered on it) as a fraction of screen height. Placed in the upper
+    /// third, near the TrueDepth camera: fixating there keeps the gaze line
+    /// close to the camera axis, which improves tracking quality and removes
+    /// the downward eye posture a screen-center dot would cause. The actual
+    /// dot position is reported to the pipeline and exported in the session
+    /// metadata (`dotCenterXPoints`/`dotCenterYPoints`).
+    var dotAnchorYFraction: Double = 0.30
+
     static let `default` = MeasurementConfig()
 }
