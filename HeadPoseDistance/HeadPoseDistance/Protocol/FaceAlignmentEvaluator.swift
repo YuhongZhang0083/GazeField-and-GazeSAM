@@ -52,13 +52,19 @@ enum FaceAlignmentEvaluator {
     /// - Parameters:
     ///   - primaryDistanceMeters: the currently selected primary distance
     ///     (filtered surface distance when TrueDepth is available, otherwise
-    ///     the ARKit head-reference distance).
-    ///   - deviationMeters: deviation from the neutral baseline, when a
-    ///     baseline exists. Preferred over the absolute range once present.
-    ///   - translation: camera-space face translation from the face anchor.
+    ///     the ARKit head-reference distance). Used only before a neutral
+    ///     baseline exists, to guide the user into the preferred range.
+    ///   - deviationMeters: distance deviation from the neutral baseline
+    ///     (head-reference), when a baseline exists. Preferred over the
+    ///     absolute range once present.
+    ///   - translation: current camera-space face translation.
+    ///   - neutralTranslation: the camera-space face translation captured at
+    ///     neutral. When present, lateral/vertical offsets are measured
+    ///     relative to it (the fixed bounds); otherwise from the camera axis.
     static func evaluate(primaryDistanceMeters: Double?,
                          deviationMeters: Double?,
                          translation: SIMD3<Float>?,
+                         neutralTranslation: SIMD3<Float>?,
                          faceTracked: Bool,
                          config: MeasurementConfig,
                          convention: AlignmentConvention = .default) -> FaceAlignmentState {
@@ -91,9 +97,13 @@ enum FaceAlignmentEvaluator {
         }
 
         // --- Lateral / vertical offset ---
+        // Relative to the neutral face position once captured (fixed bounds
+        // for the turning phase), else relative to the camera axis (setup).
         if let t = translation {
-            let right = convention.userRightFromCameraY * Double(t.y)
-            let up = convention.userUpFromCameraX * Double(t.x)
+            let dy = Double(t.y - (neutralTranslation?.y ?? 0))
+            let dx = Double(t.x - (neutralTranslation?.x ?? 0))
+            let right = convention.userRightFromCameraY * dy
+            let up = convention.userUpFromCameraX * dx
             state.userRightOffsetMeters = right
             state.userUpOffsetMeters = up
             state.withinLateralTolerance =

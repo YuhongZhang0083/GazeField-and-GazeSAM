@@ -8,6 +8,7 @@ enum RejectionReason: String, Codable, CaseIterable {
     case invalidOrientation = "invalid_orientation"
     case distanceOutOfRange = "distance_out_of_range"
     case excessiveDistanceChange = "excessive_distance_change"
+    case faceOutOfBounds = "face_out_of_lateral_bounds"
     case phoneMovementExcessive = "phone_movement_excessive"
     case headVelocityTooHigh = "head_velocity_too_high"
     case nonMonotonicTimestamp = "non_monotonic_timestamp"
@@ -37,6 +38,9 @@ struct ValidationInput {
     var headReferenceDistanceMeters: Double?
     var distanceDeviationMeters: Double?
     var baselineDistanceMeters: Double?
+    /// False when a neutral baseline exists and the face has slid outside the
+    /// fixed lateral/vertical bounds. Nil/true before a baseline exists.
+    var faceLaterallyInBounds: Bool = true
     var depthExpected: Bool
     var depthAvailable: Bool
     var depthValidPixelCount: Int?
@@ -83,6 +87,12 @@ enum SampleValidator {
                 soft.append(.distanceDeviationWarning)
                 penalty += 0.2
             }
+        }
+
+        // Face slid out of the fixed lateral/vertical bounds captured at
+        // neutral — reject (the head is no longer positioned as at baseline).
+        if !input.faceLaterallyInBounds {
+            hard.append(.faceOutOfBounds)
         }
 
         switch input.phoneStability {

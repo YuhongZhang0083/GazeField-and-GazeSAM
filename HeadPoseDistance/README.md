@@ -168,7 +168,26 @@ in-progress hold, so paused time never counts as held time):
 |---|---|---|
 | `pausedForTracking` | face not tracked | face tracked again |
 | `pausedForPhoneMotion` | excessive phone motion | motion subsides |
-| `pausedForDistance` | \|deviation\| > `guidedDistanceBandMeters` for `distancePauseEnterSeconds` | back within `guidedDistanceExitBandMeters` for `distancePauseExitSeconds` (hysteresis — no flicker) |
+| `pausedForDistance` | face out of the fixed bounds: \|distance deviation\| > `guidedDistanceBandMeters`, or lateral drift beyond `lateralOffsetToleranceMeters`, for `distancePauseEnterSeconds` | back inside (`guidedDistanceExitBandMeters` + within lateral bound) for `distancePauseExitSeconds` (hysteresis — no flicker) |
+
+**Holding the neutral position.** At neutral capture the app fixes the
+baseline: the **head-reference distance** (head-centre origin, which is stable
+under head rotation — unlike the TrueDepth surface distance, which swings as
+the nose moves) and the neutral **face position** (camera-space x/y). During
+the turning phase every sample is checked against those fixed bounds:
+
+- **Distance** — deviation from the neutral head-reference distance beyond
+  `distanceDeviationRejectMeters` (4 cm) rejects the sample and, at the same
+  band, pauses progression with "move closer / move farther". A softer warn
+  band (~2 cm) down-weights confidence without rejecting.
+- **Lateral / vertical** — displacement of the face from its neutral position
+  beyond `lateralDeviationRejectMeters` (5 cm) rejects the sample and pauses
+  with "move left / right / up / down". The bounds are anchored to the neutral
+  face position, so a participant who naturally sits off the camera axis is
+  still "centred".
+
+So a stage can only complete while the face is held at the neutral distance
+and position; drift is corrected and the drifted samples are discarded.
 
 Corrective feedback (non-blocking): wrong direction, moving too fast
 (`guidedMaxAngularVelocityDegPerSec`), off-axis drift. A generous per-stage
@@ -179,7 +198,8 @@ never auto-completes anything.
 Key thresholds (all in `MeasurementConfig`): `targetAngleDegrees` 20°,
 `targetHoldSeconds` 1.2 s, `neutralHoldSeconds` 0.8 s,
 `centerToleranceDegrees` 5°, `maxOffAxisDegrees` 12°,
-`wrongDirectionThresholdDegrees` 8°.
+`wrongDirectionThresholdDegrees` 8°, `guidedDistanceBandMeters` 4 cm,
+`lateralOffsetToleranceMeters` 5 cm.
 
 ## Dot-anchored guidance (no camera video)
 

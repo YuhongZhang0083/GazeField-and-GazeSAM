@@ -20,6 +20,7 @@ final class GuidedMovementControllerTests: XCTestCase {
                       velocity: Double = 5,
                       tracked: Bool = true,
                       deviation: Double = 0,
+                      lateralInBounds: Bool = true,
                       stability: PhoneStability = .stable)
         -> GuidedMovementController.GuidanceOutput {
         var output: GuidedMovementController.GuidanceOutput!
@@ -32,6 +33,7 @@ final class GuidedMovementControllerTests: XCTestCase {
                                              pitchDegrees: pitch,
                                              angularVelocityDegPerSec: velocity,
                                              distanceDeviationMeters: deviation,
+                                             lateralInBounds: lateralInBounds,
                                              phoneStability: stability))
             t += step
         }
@@ -245,6 +247,33 @@ final class GuidedMovementControllerTests: XCTestCase {
         let inGap = feed(controller, from: t, duration: 2, deviation: between)
         XCTAssertFalse(inGap.isPaused,
                        "deviation inside the hysteresis gap must not pause")
+    }
+
+    func testLateralOutOfBoundsPausesAndRecovers() {
+        let controller = GuidedMovementController(config: config)
+        var t = passInitialCenter(controller)
+
+        // Distance fine, but the face slid outside the fixed lateral bounds.
+        let out = feed(controller, from: t,
+                       duration: config.distancePauseEnterSeconds + 0.3,
+                       deviation: 0, lateralInBounds: false)
+        t += config.distancePauseEnterSeconds + 0.4
+        XCTAssertEqual(out.state, .pausedForDistance)
+        XCTAssertEqual(out.instruction, "Recenter your face",
+                       "lateral pause shows the generic recenter text")
+
+        // Even a perfect target angle must not complete while out of bounds.
+        let stillOut = feed(controller, from: t, duration: 2,
+                            pitch: config.targetAngleDegrees + 5,
+                            lateralInBounds: false)
+        t += 2.1
+        XCTAssertTrue(stillOut.completedDirections.isEmpty)
+
+        // Return into bounds → resume.
+        let back = feed(controller, from: t,
+                        duration: config.distancePauseExitSeconds + 0.3,
+                        lateralInBounds: true)
+        XCTAssertFalse(back.isPaused)
     }
 
     // MARK: - 7. Tracking pause

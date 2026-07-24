@@ -93,8 +93,12 @@ final class GuidedMovementController {
         var yawDegrees: Double?
         var pitchDegrees: Double?
         var angularVelocityDegPerSec: Double?
-        /// Primary-distance deviation from the neutral baseline (meters).
+        /// Head-reference distance deviation from the neutral baseline (meters).
         var distanceDeviationMeters: Double?
+        /// False when the face has slid outside the fixed lateral/vertical
+        /// bounds captured at neutral. Treated the same as a distance drift:
+        /// progression pauses until the face returns.
+        var lateralInBounds: Bool = true
         var phoneStability: PhoneStability
     }
 
@@ -227,10 +231,16 @@ final class GuidedMovementController {
             resume(at: t, reason: .phoneMotionEnded)
         }
 
-        // --- Distance (temporal hysteresis in both directions) ---
+        // --- Alignment: distance drift OR lateral drift out of the fixed
+        // bounds (temporal hysteresis in both directions). ---
         let deviation = abs(input.distanceDeviationMeters ?? 0)
+        let distanceOut = deviation > config.guidedDistanceBandMeters
+        let distanceIn = deviation <= config.guidedDistanceExitBandMeters
+        let outOfBounds = distanceOut || !input.lateralInBounds
+        let backInBounds = distanceIn && input.lateralInBounds
+
         if state == .pausedForDistance {
-            if deviation <= config.guidedDistanceExitBandMeters {
+            if backInBounds {
                 if distanceInsideSince == nil { distanceInsideSince = t }
                 if t - (distanceInsideSince ?? t) >= config.distancePauseExitSeconds {
                     distanceInsideSince = nil
@@ -240,7 +250,7 @@ final class GuidedMovementController {
                 distanceInsideSince = nil
             }
         } else {
-            if deviation > config.guidedDistanceBandMeters {
+            if outOfBounds {
                 if distanceOutsideSince == nil { distanceOutsideSince = t }
                 if t - (distanceOutsideSince ?? t) >= config.distancePauseEnterSeconds {
                     distanceOutsideSince = nil
@@ -459,7 +469,12 @@ final class GuidedMovementController {
             return "Phone moved — hold it still"
         case .pausedForDistance:
             let deviation = input.distanceDeviationMeters ?? 0
-            return deviation > 0 ? "Move closer" : "Move farther"
+            if abs(deviation) > config.guidedDistanceExitBandMeters {
+                return deviation > 0 ? "Move closer" : "Move farther"
+            }
+            // Paused for a lateral drift — the head-position boundary shows the
+            // precise "Move left/right/up/down" cue, so keep this generic.
+            return "Recenter your face"
         case .complete:
             return "Done"
         }

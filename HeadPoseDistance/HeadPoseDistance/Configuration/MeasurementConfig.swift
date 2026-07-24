@@ -51,9 +51,16 @@ struct MeasurementConfig: Codable, Equatable {
     /// Fractional deviation from the neutral baseline that triggers a warning.
     var distanceDeviationWarningFraction: Double = 0.05
 
-    /// Absolute deviation from the neutral baseline beyond which a sample is
-    /// rejected outright (torso moved, not just head rotation).
-    var distanceDeviationRejectMeters: Double = 0.10
+    /// Absolute deviation from the neutral baseline (head-reference distance,
+    /// which is stable under head rotation) beyond which a sample is rejected
+    /// outright — the participant physically moved closer/farther from the
+    /// screen rather than merely rotating the head. Tight, because the whole
+    /// point of the guided protocol is to hold the neutral distance.
+    var distanceDeviationRejectMeters: Double = 0.04
+
+    /// Lateral/vertical face displacement from the neutral position beyond
+    /// which a sample is rejected (the face slid out of the fixed bounds).
+    var lateralDeviationRejectMeters: Double = 0.05
 
     // MARK: - Neutral capture
 
@@ -156,14 +163,17 @@ struct MeasurementConfig: Codable, Equatable {
 
     // MARK: - Guided protocol distance boundary
 
-    /// Deviation from the neutral baseline distance beyond which guided
-    /// progression pauses (meters). Hysteresis: resuming requires coming back
-    /// within `guidedDistanceExitBandMeters`.
-    var guidedDistanceBandMeters: Double = 0.08
+    /// Deviation from the neutral baseline distance (head-reference, stable
+    /// under head rotation) beyond which guided progression pauses and shows
+    /// "move closer/farther" (meters). Hysteresis: resuming requires coming
+    /// back within `guidedDistanceExitBandMeters`. Kept in step with
+    /// `distanceDeviationRejectMeters` so the moment progression pauses is
+    /// also the moment samples start being rejected.
+    var guidedDistanceBandMeters: Double = 0.04
 
     /// The deviation must fall back below this before a distance pause lifts.
     /// Must be < `guidedDistanceBandMeters` (hysteresis gap prevents flicker).
-    var guidedDistanceExitBandMeters: Double = 0.06
+    var guidedDistanceExitBandMeters: Double = 0.03
 
     /// The deviation must stay beyond the band this long before pausing
     /// (temporal stability — a single noisy frame never pauses).
@@ -181,8 +191,10 @@ struct MeasurementConfig: Codable, Equatable {
     var preferredMinDistanceMeters: Double = 0.30
     var preferredMaxDistanceMeters: Double = 0.55
 
-    /// Lateral/vertical face offset from the camera axis beyond which the
-    /// alignment boundary asks the user to re-center (meters).
+    /// Lateral/vertical face offset beyond which the alignment boundary asks
+    /// the user to re-center (meters). Measured from the NEUTRAL face position
+    /// once a neutral baseline exists (the fixed up/down/left/right bounds for
+    /// the turning phase), and from the camera axis before that.
     var lateralOffsetToleranceMeters: Double = 0.05
 
     // MARK: - Screen-offset calibration

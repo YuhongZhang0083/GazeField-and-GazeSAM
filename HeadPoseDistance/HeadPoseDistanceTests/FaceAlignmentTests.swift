@@ -11,10 +11,12 @@ final class FaceAlignmentTests: XCTestCase {
     private func evaluate(distance: Double? = 0.40,
                           deviation: Double? = nil,
                           translation: SIMD3<Float>? = SIMD3<Float>(0, 0, -0.4),
+                          neutralTranslation: SIMD3<Float>? = nil,
                           tracked: Bool = true) -> FaceAlignmentState {
         FaceAlignmentEvaluator.evaluate(primaryDistanceMeters: distance,
                                         deviationMeters: deviation,
                                         translation: translation,
+                                        neutralTranslation: neutralTranslation,
                                         faceTracked: tracked,
                                         config: config)
     }
@@ -81,6 +83,31 @@ final class FaceAlignmentTests: XCTestCase {
                              translation: SIMD3<Float>(0, offset, -0.4))
         XCTAssertEqual(state.cue, "Move closer",
                        "distance correction must be requested first")
+    }
+
+    // MARK: - Lateral bounds relative to the neutral face position
+
+    /// A face that is off the camera axis but AT its neutral position must be
+    /// in-bounds — the bounds are anchored to neutral, not the camera centre.
+    func testLateralOffsetIsMeasuredFromNeutralPosition() {
+        // Neutral itself was well off the camera axis...
+        let neutral = SIMD3<Float>(0.10, -0.12, -0.4)
+        // ...and the current face is exactly at neutral.
+        let state = evaluate(translation: neutral, neutralTranslation: neutral)
+        XCTAssertTrue(state.withinLateralTolerance)
+        XCTAssertNil(state.cue)
+        XCTAssertEqual(state.userRightOffsetMeters ?? 99, 0, accuracy: 1e-6)
+        XCTAssertEqual(state.userUpOffsetMeters ?? 99, 0, accuracy: 1e-6)
+    }
+
+    func testDriftFromNeutralBeyondBoundProducesCue() {
+        let neutral = SIMD3<Float>(0, 0, -0.4)
+        let drift = Float(config.lateralOffsetToleranceMeters + 0.03)
+        // Drift to the user's right (convention: userRight = +t.y).
+        let state = evaluate(translation: SIMD3<Float>(0, drift, -0.4),
+                             neutralTranslation: neutral)
+        XCTAssertFalse(state.withinLateralTolerance)
+        XCTAssertEqual(state.cue, "Move left")
     }
 
     func testSmallOffsetsAreTolerated() {

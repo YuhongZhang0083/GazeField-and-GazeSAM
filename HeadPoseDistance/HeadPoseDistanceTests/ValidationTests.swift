@@ -59,7 +59,7 @@ final class ValidationTests: XCTestCase {
 
     func testExcessiveDistanceChangeRejects() {
         var input = healthyInput()
-        input.distanceDeviationMeters = 0.12        // beyond 0.10 m reject band
+        input.distanceDeviationMeters = 0.06        // beyond the 4 cm reject band
         let result = SampleValidator.validate(input, config: .default)
         XCTAssertFalse(result.isValid)
         XCTAssertTrue(result.reasons.contains(.excessiveDistanceChange))
@@ -67,11 +67,19 @@ final class ValidationTests: XCTestCase {
 
     func testDistanceDeviationWarningDownWeights() {
         var input = healthyInput()
-        input.distanceDeviationMeters = 0.03        // warn band (> 2 cm, < 10 cm)
+        input.distanceDeviationMeters = 0.03        // warn band (> 2 cm, < 4 cm)
         let result = SampleValidator.validate(input, config: .default)
         XCTAssertTrue(result.isValid)
         XCTAssertEqual(result.confidence, 0.8, accuracy: 1e-9)
         XCTAssertTrue(result.reasons.contains(.distanceDeviationWarning))
+    }
+
+    func testFaceOutOfLateralBoundsRejects() {
+        var input = healthyInput()
+        input.faceLaterallyInBounds = false
+        let result = SampleValidator.validate(input, config: .default)
+        XCTAssertFalse(result.isValid)
+        XCTAssertTrue(result.reasons.contains(.faceOutOfBounds))
     }
 
     func testPhoneMovement() {

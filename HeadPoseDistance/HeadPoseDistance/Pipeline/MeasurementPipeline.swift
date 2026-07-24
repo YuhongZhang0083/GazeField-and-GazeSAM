@@ -296,20 +296,34 @@ final class MeasurementPipeline {
                 cameraBehindScreenOffsetMeters: cameraBehindScreenOffsetMeters)
         }
 
-        // Distance deviation from the neutral baseline. Uses the filtered
-        // surface stream when both it and a surface baseline exist, otherwise
-        // the head-reference distance.
+        // Distance deviation from the neutral baseline. Uses the ARKit
+        // head-reference distance (head-centre origin), which stays essentially
+        // constant while the head rotates and moves only when the participant
+        // physically moves closer/farther — the correct signal for holding the
+        // neutral distance. The TrueDepth surface distance swings with head
+        // rotation, so it is recorded/displayed but NOT used for this check.
         var deviation: Double?
         var baseline: Double?
-        if let neutral = neutralPose {
-            if let filtered = surfaceMedian, let surfBase = neutral.baselineSurfaceDistanceMeters {
-                baseline = surfBase
-                deviation = filtered - surfBase
-            } else if let pose {
-                baseline = neutral.baselineHeadReferenceDistanceMeters
-                deviation = pose.headReferenceDistanceMeters - baseline!
-            }
+        if let neutral = neutralPose, let pose {
+            baseline = neutral.baselineHeadReferenceDistanceMeters
+            deviation = pose.headReferenceDistanceMeters - baseline!
         }
+
+        // Head-position alignment (distance band + fixed lateral bounds around
+        // the neutral face position). Computed here so the same verdict drives
+        // validation, guided-pause, and the on-screen boundary.
+        let neutralTranslation = neutralPose.map {
+            SIMD3<Float>($0.translation[0], $0.translation[1], $0.translation[2])
+        }
+        let alignment = FaceAlignmentEvaluator.evaluate(
+            primaryDistanceMeters: surfaceEMA ?? pose?.headReferenceDistanceMeters,
+            deviationMeters: deviation,
+            translation: pose?.translation,
+            neutralTranslation: neutralTranslation,
+            faceTracked: faceTracked,
+            config: config)
+        // Lateral bounds are only meaningful once a neutral position exists.
+        let lateralInBounds = neutralPose == nil ? true : alignment.withinLateralTolerance
 
         // Phone motion — smoothed + debounced so isolated Core Motion spikes
         // don't flash "excessive" and needlessly pause the protocol.
@@ -334,6 +348,7 @@ final class MeasurementPipeline {
             headReferenceDistanceMeters: pose?.headReferenceDistanceMeters,
             distanceDeviationMeters: deviation,
             baselineDistanceMeters: baseline,
+            faceLaterallyInBounds: lateralInBounds,
             depthExpected: trueDepthEverAvailable,
             depthAvailable: surfaceRaw != nil,
             depthValidPixelCount: depthStats?.validPixelCount,
@@ -366,7 +381,8 @@ final class MeasurementPipeline {
                              angularVelocity: angularVelocity,
                              surfaceRaw: surfaceRaw, surfaceMedian: surfaceMedian,
                              surfaceEMA: surfaceEMA, estimatedScreen: estimatedScreen,
-                             deviation: deviation, depthStats: depthStats,
+                             deviation: deviation, lateralInBounds: lateralInBounds,
+                             depthStats: depthStats,
                              motion: motion, stability: stability,
                              validation: validation, distanceStable: distanceStable)
         default:
@@ -391,7 +407,8 @@ final class MeasurementPipeline {
                             surfaceEMA: surfaceEMA, estimatedScreen: estimatedScreen,
                             baseline: baseline, deviation: deviation,
                             distanceStable: distanceStable, motion: motion,
-                            stability: stability, validation: validation)
+                            stability: stability, validation: validation,
+                            alignment: alignment)
         }
     }
 
@@ -444,7 +461,7 @@ final class MeasurementPipeline {
                                   angularVelocity: Double?,
                                   surfaceRaw: Double?, surfaceMedian: Double?,
                                   surfaceEMA: Double?, estimatedScreen: Double?,
-                                  deviation: Double?,
+                                  deviation: Double?, lateralInBounds: Bool,
                                   depthStats: DepthROIStatistics?,
                                   motion: DeviceMotionMonitor.Snapshot?,
                                   stability: PhoneStability,
@@ -467,6 +484,7 @@ final class MeasurementPipeline {
             pitchDegrees: relativeEulerUser?.pitchDegrees,
             angularVelocityDegPerSec: angularVelocity,
             distanceDeviationMeters: deviation,
+            lateralInBounds: lateralInBounds,
             phoneStability: stability))
         lastGuidanceOutput = output
         completedDirections = output.completedDirections
@@ -617,7 +635,8 @@ final class MeasurementPipeline {
                                  distanceStable: Bool,
                                  motion: DeviceMotionMonitor.Snapshot?,
                                  stability: PhoneStability,
-                                 validation: ValidationResult) {
+                                 validation: ValidationResult,
+                                 alignment: FaceAlignmentState) {
         var s = MeasurementSnapshot()
         s.stage = stage
         s.faceTracked = faceTracked
@@ -672,13 +691,9 @@ final class MeasurementPipeline {
             config: config)
         s.completedDirections = completedDirections
 
-        // Head-position boundary, from tracking data only.
-        s.alignment = FaceAlignmentEvaluator.evaluate(
-            primaryDistanceMeters: surfaceEMA ?? pose?.headReferenceDistanceMeters,
-            deviationMeters: deviation,
-            translation: pose?.translation,
-            faceTracked: faceTracked,
-            config: config)
+        // Head-position boundary (computed once in process(), from tracking
+        // data only).
+        s.alignment = alignment
 
         // Phone motion.
         s.phoneStability = stability
