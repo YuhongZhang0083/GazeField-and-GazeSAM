@@ -40,6 +40,9 @@ struct HeadDirectionTarget: Equatable {
         case .upperRight:  return HeadDirectionTarget(yawUnit: diagonal, pitchUnit: diagonal)
         case .lowerLeft:   return HeadDirectionTarget(yawUnit: -diagonal, pitchUnit: -diagonal)
         case .lowerRight:  return HeadDirectionTarget(yawUnit: diagonal, pitchUnit: -diagonal)
+        // The sweep has no fixed target — its goal moves every frame and is
+        // supplied by `SpiralSweepPath`, not by this table.
+        case .sweep: return nil
         case .idle, .neutralCapture, .complete: return nil
         }
     }

@@ -21,11 +21,28 @@ struct VirtualHeadView: UIViewRepresentable {
     /// Distance deviation from baseline (meters); + = too far → smaller head.
     var distanceDeviationMeters: Double?
     var faceTracked: Bool
+    /// Orientation the spiral-sweep guide is asking for, or nil outside the
+    /// sweep. Rendered as a translucent oversized outline co-located with the
+    /// solid head: the participant "fills" the outline by rotating.
+    ///
+    /// Co-location is the whole point. A guide that moved *away* from the
+    /// fixation dot would pull the eyes off it — and the entire method depends
+    /// on the eyes staying on the dot while only the head moves. Here the
+    /// guide conveys a 3D orientation from the same screen position as the
+    /// dot, so following it requires no gaze shift.
+    var targetYawDegrees: Double?
+    var targetPitchDegrees: Double?
+    /// True while the guide is waiting for the head to catch up — the outline
+    /// warms to amber as a peripheral "you're behind" cue.
+    var guideStalled: Bool = false
 
     /// Scene-units-per-meter for the lateral offset visualization.
     static let offsetScale: Float = 6.0
     /// Head shrink/grow per meter of distance deviation.
     static let distanceScalePerMeter: Float = 3.0
+    /// The guide outline is drawn slightly larger than the head so an aligned
+    /// head nests inside it rather than z-fighting with it.
+    static let guideScale: Float = 1.14
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
@@ -38,8 +55,9 @@ struct VirtualHeadView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
-        guard let head = view.scene?.rootNode.childNode(withName: "head",
-                                                        recursively: false) else { return }
+        guard let root = view.scene?.rootNode,
+              let head = root.childNode(withName: "head", recursively: false) else { return }
+        updateGuide(root.childNode(withName: "guideHead", recursively: false))
         SCNTransaction.begin()
         // Short implicit animation smooths 15 Hz snapshot updates without
         // adding perceptible lag.
@@ -63,6 +81,31 @@ struct VirtualHeadView: UIViewRepresentable {
         // Tracking-lost state: fade toward a ghost outline.
         head.opacity = faceTracked ? 1.0 : 0.22
 
+        SCNTransaction.commit()
+    }
+
+    /// Points the guide outline at the requested orientation, or hides it when
+    /// no sweep is running.
+    private func updateGuide(_ guide: SCNNode?) {
+        guard let guide else { return }
+        guard let yaw = targetYawDegrees, let pitch = targetPitchDegrees else {
+            guide.isHidden = true
+            return
+        }
+        guide.isHidden = false
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0.08
+        // Roll is never guided — the sweep is a (yaw, pitch) path, and asking
+        // for a head roll would add a rotation the gaze-field model does not
+        // use.
+        guide.simdOrientation = VirtualHeadOrientation.quaternion(
+            yawDegrees: yaw, pitchDegrees: pitch, rollDegrees: 0)
+        guide.simdScale = SIMD3<Float>(repeating: Self.guideScale)
+        guide.opacity = guideStalled ? 0.55 : 0.32
+        guide.enumerateHierarchy { node, _ in
+            node.geometry?.firstMaterial?.diffuse.contents =
+                guideStalled ? UIColor.systemOrange : UIColor.systemTeal
+        }
         SCNTransaction.commit()
     }
 
@@ -97,7 +140,31 @@ struct VirtualHeadView: UIViewRepresentable {
         scene.rootNode.addChildNode(key)
 
         scene.rootNode.addChildNode(makeHeadNode())
+        scene.rootNode.addChildNode(makeGuideNode())
         return scene
+    }
+
+    /// Translucent copy of the head used as the spiral-sweep guide. Same
+    /// silhouette as the participant's head so "match the outline" is
+    /// unambiguous, but unlit and see-through so it reads as a target rather
+    /// than as a second head.
+    static func makeGuideNode() -> SCNNode {
+        let guide = makeHeadNode()
+        guide.enumerateHierarchy { node, _ in
+            guard let material = node.geometry?.firstMaterial else { return }
+            material.diffuse.contents = UIColor.systemTeal
+            material.lightingModel = .constant
+            // Never occlude the solid head — the participant's own pose has to
+            // stay readable through the guide.
+            material.writesToDepthBuffer = false
+        }
+        // Named last: `enumerateHierarchy` visits the root too, so renaming
+        // before it would have to be undone here anyway.
+        guide.name = "guideHead"
+        guide.isHidden = true
+        guide.simdScale = SIMD3<Float>(repeating: guideScale)
+        guide.opacity = 0.32
+        return guide
     }
 
     /// Deliberately generic — an ellipsoid skull with a nose (unmistakable

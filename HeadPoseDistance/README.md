@@ -45,7 +45,10 @@ HeadPoseDistance/
 │   ├── Calibration/NeutralPoseCalibrator.swift
 │   ├── Motion/DeviceMotionMonitor.swift ← Core Motion phone stability
 │   ├── Validation/SampleValidator.swift
-│   ├── Protocol/   (GuidedMovementController ← pose-driven state machine,
+│   ├── Protocol/   (GuidanceTypes ← shared state/transition/IO + RecordingMode,
+│   │                GuidedMovementController ← 8-spoke state machine,
+│   │                SpiralSweepPath ← uniform-density spiral geometry,
+│   │                SpiralSweepController ← sweep state machine,
 │   │                HeadDirectionTarget, FaceAlignmentEvaluator,
 │   │                RecordingProtocolController ← phase vocabulary)
 │   ├── Visualization/ (VirtualHeadView ← generic 3D head, VirtualHeadOrientation)
@@ -127,14 +130,19 @@ xcodebuild -project HeadPoseDistance.xcodeproj -scheme HeadPoseDistance \
 4. **Neutral Capture** — *Capture Neutral Pose*: ~2 s of samples while the
    head is still; robust (quaternion-aware) aggregation; rejected if the
    head/phone moved or distance drifted.
-5. **Head-Movement Recording** — *Start Head Movement Recording*: a
-   **pose-driven** guided sequence
-   (center → up → center → down → center → left → center → right → center →
-   upper-left → center → upper-right → center → lower-left → center →
-   lower-right → complete). Each stage advances only when the measured pose
-   satisfies its criteria — never because a timer expired (see "Guided
-   protocol" below). Pause/Resume/Stop/Restart available. The dot never
-   moves; all guidance sits in a fixed ring around it.
+5. **Head-Movement Recording** — pick a protocol with the segmented control,
+   then *Start … Recording*. Both are **pose-driven**: progress is earned by
+   the measured pose, never by a timer.
+   - **Spiral Sweep** (default) — one continuous Archimedean spiral that
+     samples the (yaw, pitch) plane at *uniform areal density*. This is the
+     protocol the gaze-field fit needs; see "Spiral sweep protocol" below.
+   - **8-Spoke** — the original sequence
+     (center → up → center → down → … → lower-right → complete). Sparse in
+     the interior, so it is kept as a **validation / comparison** set rather
+     than as training data.
+
+   Pause/Resume/Stop/Restart available in both. The dot never moves; all
+   guidance sits in a fixed ring around it.
 6. **Session Results** — summary statistics and lightweight native traces
    (distance, yaw, pitch, roll over time).
 7. **Data Export** — CSV (accepted samples; optional debug CSV including
@@ -143,6 +151,99 @@ xcodebuild -project HeadPoseDistance.xcodeproj -scheme HeadPoseDistance \
 8. **Debug View** (wrench icon) — raw transforms, quaternions, depth-map
    internals, ROI, Core Motion values, validity decision, and an optional
    front-camera preview (never saved).
+
+## Spiral sweep protocol (default)
+
+### Why the eight spokes were not enough
+
+The eight-spoke protocol returns to neutral between every direction, so
+roughly 40–50% of its samples land in one blob at (0, 0), and the eight
+targets are reached along eight radial lines with nothing in between.
+
+That is invisible in the final heatmap, which is what makes it dangerous.
+`adaptive_kernel_convolution_heatmaps.py` masks to the **convex hull** of the
+samples — the octagon through the eight tips — and inflates its kernel where
+density is low (`--sigma-min 3` → `--sigma-max 22`). In the empty wedges the
+kernel pins to 22°, so those regions get filled with a near-global average and
+render as a smooth, confident field where nothing was measured. The
+`--center-density-penalty` flag already in that script exists to patch the
+other half of the same problem.
+
+It also hurts the fit, not just the picture: the polynomial and manifold gaze
+models have `yaw·pitch` cross terms, but on the four axis spokes one of the
+two is ~0, and on the four diagonals `|yaw| = |pitch|`. The entire interaction
+structure ends up estimated from four collinear directions.
+
+### The path
+
+`SpiralSweepPath` traces an Archimedean spiral in neutral-relative
+(yaw, pitch) degrees. Two choices carry the whole design:
+
+1. **Archimedean (r ∝ θ), not logarithmic** — successive turns are evenly
+   spaced in radius, so ring spacing is uniform at
+   `(1 − innerRadiusFraction) / turns` of full amplitude (~3.9° with the
+   defaults, just under the heatmap's 3° `--sigma-min`, so the kernel
+   interpolates between measured rings instead of across gaps).
+2. **Constant tangential speed, not constant angular rate.** A constant
+   angular rate would dwell near the centre and reproduce exactly the
+   pile-up being removed. The parameterization
+
+       ρ(u) = √(ρ₀² + (1 − ρ₀²)·u)
+
+   makes ρ² — and therefore enclosed area — grow linearly with progress `u`.
+   Samples arrive at a fixed 60 Hz, so equal time means equal area means
+   **uniform areal sample density**. This is measured, not assumed:
+   `testUniformArealSampleDensity` bins the path into 12 equal-area annuli and
+   requires every bin to be within 2% of the mean.
+
+Yaw and pitch amplitudes differ (22° / 16°) because comfortable eye-in-head
+range is narrower vertically. The elliptical stretch is a linear map, so it
+preserves uniform density — but it does make *degree-space* speed vary by up
+to the amplitude ratio, which is why `speedUniformityRatio` (degree space) and
+`normalizedSpeedUniformityRatio` (the actual design property) are separate.
+
+Defaults: 22°/16° amplitude, 5 turns, 75 s of following → guide at ~5°/s,
+~4500 samples at 60 Hz, ~1500 Aria eye frames at 20 Hz.
+
+### The guide never runs away
+
+Progress advances **only** while the head is within
+`sweepFollowToleranceDegrees` (7°) of the guide; otherwise the state machine
+enters `sweepStalled` and the guide waits, resuming at a tighter 5° for
+hysteresis. So elapsed time is never credited as coverage and `sweep_progress`
+always means "this much of the path was really traversed".
+
+The corollary is deliberate: a participant who stops following never finishes.
+There is **no timeout that auto-completes a sweep**. Stopping early is safe —
+`sweep_progress` is recorded per sample, so a partial sweep is still usable.
+
+### Following the guide without moving your eyes
+
+The whole method depends on the eyes staying on the fixed dot while only the
+head moves, so the guide must not become a second fixation target. A marker
+that travelled across the screen would do exactly that — at a 55 cm working
+distance even the existing 136 pt guidance ring sits only ~2.4° off axis.
+
+Instead the guide is a **translucent oversized outline of the virtual head,
+co-located with the fixation dot**. It conveys a 3D orientation from the same
+screen position as the dot, so following it requires no gaze shift: the
+participant rotates until their solid head nests inside the teal outline. The
+outline warms to amber while stalled. No arrow is shown during a sweep.
+
+### Export
+
+Spiral sessions add four columns, appended after the original 36 so existing
+parsers keep working (empty in eight-spoke mode):
+
+| Column | Meaning |
+|---|---|
+| `sweep_progress` | 0…1 along the path at this sample |
+| `sweep_target_yaw_deg` | where the guide was |
+| `sweep_target_pitch_deg` | where the guide was |
+| `sweep_tracking_error_deg` | head-to-guide distance — usable as a per-sample quality weight |
+
+`SessionMetadata.recordingMode` (`spiral_sweep` / `eight_spoke`) makes every
+export self-describing when the two protocols are compared.
 
 ## Guided protocol: pose-driven state machine
 
@@ -363,4 +464,20 @@ phase labeling), `VirtualHeadOrientationTests` (mirror-convention mapping),
 and `FaceAlignmentTests` (distance band, lateral cues, cue priority,
 stage-transition JSON round-trip).
 
-Current status: **114 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).
+New in the spiral-sweep update:
+
+- `SpiralSweepPathTests` — **uniform areal sample density** (12 equal-area
+  annuli, every bin within 2% of the mean: the measured form of the claim that
+  justifies the whole protocol), constant normalized tangential speed,
+  degree-space speed bounded by the amplitude ratio, amplitude bounds,
+  endpoints, continuity, ring spacing versus the heatmap kernel, speed budget
+  under the too-fast threshold, eye-frame yield, and clamping of degenerate
+  configurations.
+- `SpiralSweepControllerTests` — the guide waits instead of running away (a
+  motionless head accumulates almost no coverage and never completes), stall
+  hysteresis, progress/target/error reporting, tracking, phone-motion and
+  distance pauses, `sweep` labelling of paused mid-sweep samples, large
+  timestamp gaps not credited as progress, and full traversal → return →
+  complete.
+
+Current status: **156 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).

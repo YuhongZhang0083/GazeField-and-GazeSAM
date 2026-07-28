@@ -66,6 +66,8 @@ struct MeasurementSnapshot {
     var completedDirections: Set<ProtocolPhase> = []
     /// Pose-driven guidance state, present while recording/paused.
     var guidance: GuidanceUIState?
+    /// Protocol in effect for the active/most recent recording.
+    var recordingMode: RecordingMode = .spiralSweep
 
     // MARK: Head-position boundary
     /// Alignment of the face against the distance band and lateral tolerance,
@@ -107,7 +109,7 @@ struct MeasurementSnapshot {
 
 /// Value-type mirror of the guidance controller's output for the UI layer.
 struct GuidanceUIState: Equatable {
-    var state: GuidedMovementController.StateKind
+    var state: GuidanceStateKind
     var direction: ProtocolPhase?
     var instruction: String
     var feedbackMessage: String?
@@ -117,8 +119,10 @@ struct GuidanceUIState: Equatable {
     var stageCount: Int
     var isPaused: Bool
     var isComplete: Bool
+    /// Present only in spiral-sweep mode — drives the ghost guide head.
+    var sweep: SweepGuidanceState?
 
-    init(output: GuidedMovementController.GuidanceOutput) {
+    init(output: ProtocolGuidanceOutput) {
         state = output.state
         direction = output.direction
         instruction = output.instruction
@@ -129,5 +133,6 @@ struct GuidanceUIState: Equatable {
         stageCount = output.stageCount
         isPaused = output.isPaused
         isComplete = output.isComplete
+        sweep = output.sweep
     }
 }

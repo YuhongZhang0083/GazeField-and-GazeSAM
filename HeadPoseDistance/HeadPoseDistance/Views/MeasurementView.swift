@@ -236,13 +236,44 @@ struct MeasurementView: View {
 
     // MARK: - Bottom bar: stage progress + controls
 
+    /// Protocol chooser, shown only before recording starts. Both modes stay
+    /// available so a spiral session (gaze-field training data) and an
+    /// eight-spoke session (held-out validation targets) can be recorded
+    /// back to back on the same neutral pose.
+    @ViewBuilder
+    private var modePicker: some View {
+        if viewModel.snapshot.stage == .neutralReady {
+            VStack(spacing: 4) {
+                Picker("Protocol", selection: $viewModel.recordingMode) {
+                    ForEach(RecordingMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(viewModel.recordingMode.shortDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var bottomBar: some View {
         VStack(spacing: 8) {
+            modePicker
             if viewModel.snapshot.stage == .recording
                 || viewModel.snapshot.stage == .paused {
-                DirectionChecklist(completed: viewModel.snapshot.completedDirections)
+                // The eight-direction checklist is meaningless for a
+                // continuous sweep; that mode shows path progress instead.
+                if viewModel.snapshot.recordingMode == .eightSpoke {
+                    DirectionChecklist(completed: viewModel.snapshot.completedDirections)
+                } else if let sweep = viewModel.snapshot.guidance?.sweep {
+                    SweepProgressBar(progress: sweep.progress, stalled: sweep.isStalled)
+                }
                 HStack {
-                    if let guidance = viewModel.snapshot.guidance {
+                    if viewModel.snapshot.recordingMode == .spiralSweep {
+                        Text(String(format: "Sweep %.0f%%",
+                                    (viewModel.snapshot.guidance?.sweep?.progress ?? 0) * 100))
+                    } else if let guidance = viewModel.snapshot.guidance {
                         Text("Stage \(min(guidance.stageIndex + 1, guidance.stageCount)) of \(guidance.stageCount)")
                     }
                     Spacer()
@@ -273,8 +304,10 @@ struct MeasurementView: View {
                 ProgressView()
                 Text("Hold still…").font(.callout)
             case .neutralReady:
-                Button("Start Head Movement Recording") { viewModel.startRecording() }
-                    .buttonStyle(.borderedProminent)
+                Button("Start \(viewModel.recordingMode.displayName) Recording") {
+                    viewModel.startRecording()
+                }
+                .buttonStyle(.borderedProminent)
                 Button("Recapture Neutral") { viewModel.recaptureNeutral() }
                     .buttonStyle(.bordered)
             case .recording:
@@ -499,6 +532,33 @@ struct DirectionChecklist: View {
     }
 }
 
+/// Coverage bar for the spiral sweep — the continuous analogue of the
+/// eight-direction checklist. Placed at the bottom of the screen, far from the
+/// fixation dot, and it only ever grows, so it needs no attention: progress is
+/// also signalled by the guide outline the participant is already following.
+struct SweepProgressBar: View {
+    let progress: Double
+    let stalled: Bool
+
+    var body: some View {
+        VStack(spacing: 3) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.12))
+                    Capsule()
+                        .fill(stalled ? Color.orange : Color.green)
+                        .frame(width: geo.size.width * min(max(progress, 0), 1))
+                }
+            }
+            .frame(height: 5)
+            Text(stalled ? "Guide waiting — match the outline" : "Spiral coverage")
+                .font(.caption2)
+                .foregroundStyle(stalled ? Color.orange : .secondary)
+        }
+        .accessibilityLabel("Sweep \(Int(progress * 100)) percent complete")
+    }
+}
+
 /// Virtual head + head-position boundary, centered so it sits directly under
 /// the fixation dot (drawn on top by `MeasurementView`). This co-location is
 /// deliberate: the participant looks at the red dot and their head
@@ -534,7 +594,10 @@ struct CenteredHeadBoundary: View {
                 userRightOffsetMeters: snapshot.alignment.userRightOffsetMeters,
                 userUpOffsetMeters: snapshot.alignment.userUpOffsetMeters,
                 distanceDeviationMeters: snapshot.distanceDeviationMeters,
-                faceTracked: snapshot.faceTracked)
+                faceTracked: snapshot.faceTracked,
+                targetYawDegrees: sweep?.targetYawDegrees,
+                targetPitchDegrees: sweep?.targetPitchDegrees,
+                guideStalled: sweep?.isStalled ?? false)
                 .frame(width: headSize.width, height: headSize.height)
 
             // Alignment cue sits ABOVE the hold ring (radius 104 in
@@ -551,6 +614,9 @@ struct CenteredHeadBoundary: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Head position: \(cueText ?? "aligned")")
     }
+
+    /// Spiral-sweep guide state, nil in eight-spoke mode and outside the sweep.
+    private var sweep: SweepGuidanceState? { snapshot.guidance?.sweep }
 
     private var aligned: Bool { snapshot.alignment.isAligned }
 

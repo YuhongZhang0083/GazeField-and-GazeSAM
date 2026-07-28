@@ -24,104 +24,10 @@ import Foundation
 /// plus pause states (tracking / distance / phone motion) that suspend the
 /// graph and return to a safe sub-state on resume, and a per-stage timeout
 /// that records a failure transition and retries the same stage.
-final class GuidedMovementController {
-
-    // MARK: - Public types
-
-    /// Sub-state of the guided protocol.
-    enum StateKind: String, Codable, Equatable {
-        case instructingDirection = "instructing_direction"
-        case movingTowardTarget = "moving_toward_target"
-        case holdingTargetPose = "holding_target_pose"
-        case returningToNeutral = "returning_to_neutral"
-        case holdingNeutral = "holding_neutral"
-        case pausedForTracking = "paused_for_tracking"
-        case pausedForDistance = "paused_for_distance"
-        case pausedForPhoneMotion = "paused_for_phone_motion"
-        case complete
-    }
-
-    /// Why a state transition happened. Every transition is recorded.
-    enum TransitionReason: String, Codable {
-        case recordingStarted = "recording_started"
-        case movementStarted = "movement_started"
-        case targetReached = "target_reached"
-        case holdBroken = "hold_broken"
-        case holdCompleted = "hold_completed"
-        case reachedNeutral = "reached_neutral"
-        case leftNeutral = "left_neutral"
-        case neutralHoldCompleted = "neutral_hold_completed"
-        case allStagesComplete = "all_stages_complete"
-        case stageTimeout = "stage_timeout"
-        case trackingLost = "tracking_lost"
-        case trackingRecovered = "tracking_recovered"
-        case distanceOutOfRange = "distance_out_of_range"
-        case distanceRecovered = "distance_recovered"
-        case phoneMotionExcessive = "phone_motion_excessive"
-        case phoneMotionEnded = "phone_motion_ended"
-    }
-
-    /// One recorded transition, exported with the session.
-    struct StageTransition: Codable, Equatable {
-        var sessionElapsedSeconds: Double
-        var fromState: String
-        var toState: String
-        var stagePhase: String
-        var reason: String
-    }
-
-    /// Non-blocking corrective feedback shown near the fixation dot.
-    enum Feedback: Equatable {
-        case wrongDirection
-        case tooFast
-        case offAxis
-
-        var message: String {
-            switch self {
-            case .wrongDirection: return "Other way — follow the arrow"
-            case .tooFast: return "Move more slowly"
-            case .offAxis: return "Drifting off-axis — follow the arrow"
-            }
-        }
-    }
-
-    /// Per-frame input, all values neutral-relative / already filtered by the
-    /// measurement pipeline.
-    struct GuidanceInput {
-        var timestamp: TimeInterval
-        var faceTracked: Bool
-        var yawDegrees: Double?
-        var pitchDegrees: Double?
-        var angularVelocityDegPerSec: Double?
-        /// Head-reference distance deviation from the neutral baseline (meters).
-        var distanceDeviationMeters: Double?
-        /// False when the face has slid outside the fixed lateral/vertical
-        /// bounds captured at neutral. Treated the same as a distance drift:
-        /// progression pauses until the face returns.
-        var lateralInBounds: Bool = true
-        var phoneStability: PhoneStability
-    }
-
-    /// Everything the UI and the sample labeler need for the current frame.
-    struct GuidanceOutput: Equatable {
-        var state: StateKind
-        /// Direction being worked on, nil once complete.
-        var direction: ProtocolPhase?
-        /// Phase label recorded on samples (up/center/…): preserved format.
-        var protocolPhase: ProtocolPhase
-        /// Short instruction, phrased for display next to the fixation dot.
-        var instruction: String
-        var feedback: Feedback?
-        /// 0…1 progress of the active hold (target or neutral), else 0.
-        var holdProgress: Double
-        /// 0…1 progress toward the target angle (mirrors the moving state).
-        var approachProgress: Double
-        var stageIndex: Int
-        var stageCount: Int
-        var completedDirections: Set<ProtocolPhase>
-        var isComplete: Bool
-        var isPaused: Bool
-    }
+/// Its state, transition, input, and output types are shared with the other
+/// protocols and live in `GuidanceTypes.swift`; the aliases there keep the
+/// `GuidedMovementController.StateKind` spelling valid.
+final class GuidedMovementController: ProtocolControlling {
 
     // MARK: - Configuration
 
@@ -425,7 +331,8 @@ final class GuidedMovementController {
             stageCount: Self.directionSequence.count,
             completedDirections: completedDirections,
             isComplete: state == .complete,
-            isPaused: isPausedState(state))
+            isPaused: isPausedState(state),
+            sweep: nil)
     }
 
     /// Phase label written onto recorded samples. Preserves the existing
@@ -449,6 +356,10 @@ final class GuidedMovementController {
             }
         case .complete:
             return .complete
+        // Sweep states belong to SpiralSweepController and are unreachable
+        // here; the eight-spoke protocol never enters them.
+        case .sweeping, .sweepStalled:
+            return .center
         }
     }
 
@@ -477,6 +388,8 @@ final class GuidedMovementController {
             return "Recenter your face"
         case .complete:
             return "Done"
+        case .sweeping, .sweepStalled:
+            return ""
         }
     }
 
@@ -516,6 +429,7 @@ extension ProtocolPhase {
         case .lowerLeft: return "turn your head lower-left"
         case .lowerRight: return "turn your head lower-right"
         case .center: return "return to center"
+        case .sweep: return "follow the outline"
         case .idle, .neutralCapture, .complete: return ""
         }
     }

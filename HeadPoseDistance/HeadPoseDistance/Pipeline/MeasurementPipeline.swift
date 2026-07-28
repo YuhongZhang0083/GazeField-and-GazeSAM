@@ -30,8 +30,12 @@ final class MeasurementPipeline {
     private var neutralPose: NeutralPose?
     private var neutralCollector: NeutralPoseCalibrator?
     private var recorder: SessionRecorder?
-    private var guidance: GuidedMovementController?
-    private var lastGuidanceOutput: GuidedMovementController.GuidanceOutput?
+    /// The active recording protocol — eight-spoke or spiral sweep. Both
+    /// conform to `ProtocolControlling`, so everything downstream of here is
+    /// mode-agnostic.
+    private var guidance: ProtocolControlling?
+    private var recordingMode: RecordingMode = .spiralSweep
+    private var lastGuidanceOutput: ProtocolGuidanceOutput?
     private var recordingStartFrameTime: TimeInterval?
     private var pausedAccumulated: TimeInterval = 0
     private var pauseBeganAt: TimeInterval?
@@ -120,10 +124,16 @@ final class MeasurementPipeline {
         stage = .capturingNeutral
     }
 
-    func startRecording() {
+    func startRecording(mode: RecordingMode) {
         guard stage == .neutralReady, neutralPose != nil else { return }
         recorder = SessionRecorder()
-        guidance = GuidedMovementController(config: config)
+        recordingMode = mode
+        switch mode {
+        case .eightSpoke:
+            guidance = GuidedMovementController(config: config)
+        case .spiralSweep:
+            guidance = SpiralSweepController(config: config)
+        }
         lastGuidanceOutput = nil
         recordingStartFrameTime = nil   // set on the first recorded frame
         pausedAccumulated = 0
@@ -477,7 +487,7 @@ final class MeasurementPipeline {
 
         // Pose-driven progression: the state machine decides the current
         // stage from the measured relative pose, never from elapsed time.
-        let output = guidance.update(GuidedMovementController.GuidanceInput(
+        let output = guidance.update(ProtocolGuidanceInput(
             timestamp: frameTime,
             faceTracked: faceTracked,
             yawDegrees: relativeEulerUser?.yawDegrees,
@@ -536,7 +546,11 @@ final class MeasurementPipeline {
             distanceStable: distanceStable,
             sampleValid: validation.isValid,
             confidence: validation.confidence,
-            rejectionReasons: validation.reasons.map { $0.rawValue })
+            rejectionReasons: validation.reasons.map { $0.rawValue },
+            sweepProgress: output.sweep?.progress,
+            sweepTargetYawDegrees: output.sweep?.targetYawDegrees,
+            sweepTargetPitchDegrees: output.sweep?.targetPitchDegrees,
+            sweepTrackingErrorDegrees: output.sweep?.trackingErrorDegrees)
         recorder.add(sample)
 
         // Completion comes from the state machine (all stages genuinely
@@ -561,6 +575,7 @@ final class MeasurementPipeline {
         metadata.screenScale = screenScale
         metadata.dotCenterXPoints = Double(dotCenter.x)
         metadata.dotCenterYPoints = Double(dotCenter.y)
+        metadata.recordingMode = recordingMode.rawValue
         metadata.startedAt = recorder.startedAt
         metadata.cameraBehindScreenOffsetMeters = cameraBehindScreenOffsetMeters
         metadata.screenOffsetCalibrated = screenOffsetCalibrated
@@ -644,6 +659,7 @@ final class MeasurementPipeline {
         s.interrupted = interrupted
         s.sessionErrorMessage = sessionErrorMessage
         s.frameRateHz = frameRateEMA
+        s.recordingMode = recordingMode
 
         // Protocol state.
         switch stage {

@@ -28,6 +28,10 @@ final class MeasurementViewModel: ObservableObject {
     @Published private(set) var screenOffsetCalibrated = false
     @Published var showDebugView = false
     @Published var showCalibrationSheet = false
+    /// Protocol used for the next recording. Defaults to the spiral sweep —
+    /// the uniform-density protocol the gaze-field fit needs; the eight-spoke
+    /// protocol remains selectable as a comparison / validation set.
+    @Published var recordingMode: RecordingMode = .spiralSweep
     @Published private(set) var exportedFiles: [ExportedFile] = []
     @Published var exportErrorMessage: String?
 
@@ -202,7 +206,8 @@ final class MeasurementViewModel: ObservableObject {
     }
 
     func startRecording() {
-        sessionQueue.async { [pipeline] in pipeline.startRecording() }
+        let mode = recordingMode
+        sessionQueue.async { [pipeline] in pipeline.startRecording(mode: mode) }
     }
 
     func pauseRecording() {

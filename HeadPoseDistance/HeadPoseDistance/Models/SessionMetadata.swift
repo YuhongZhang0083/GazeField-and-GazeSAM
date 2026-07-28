@@ -18,6 +18,10 @@ struct SessionMetadata: Codable {
     var dotCenterXPoints: Double = 0
     var dotCenterYPoints: Double = 0
 
+    /// Which recording protocol produced this session, so a CSV is always
+    /// self-describing when the two modes are compared.
+    var recordingMode: String = RecordingMode.spiralSweep.rawValue
+
     var startedAt: Date = Date()
     var durationSeconds: Double = 0
 

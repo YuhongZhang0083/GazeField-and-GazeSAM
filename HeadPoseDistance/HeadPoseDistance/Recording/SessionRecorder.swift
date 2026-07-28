@@ -10,7 +10,7 @@ struct RecordedSession {
     var summary: SessionSummary
     /// Guided-protocol state transitions with reasons (why each stage
     /// advanced, paused, resumed, or retried). Additive to the export format.
-    var stageTransitions: [GuidedMovementController.StageTransition] = []
+    var stageTransitions: [ProtocolTransition] = []
 }
 
 /// Accumulates samples during a recording. Rejected samples are kept in a
@@ -42,7 +42,7 @@ final class SessionRecorder {
                 configuration: MeasurementConfig,
                 neutralPose: NeutralPose?,
                 durationSeconds: Double,
-                stageTransitions: [GuidedMovementController.StageTransition] = []) -> RecordedSession {
+                stageTransitions: [ProtocolTransition] = []) -> RecordedSession {
         var meta = metadata
         meta.durationSeconds = durationSeconds
         meta.trueDepthSurfaceAvailable = (acceptedSamples + rejectedSamples)

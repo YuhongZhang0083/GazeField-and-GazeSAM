@@ -218,6 +218,44 @@ struct MeasurementConfig: Codable, Equatable {
     /// during a center phase.
     var centerToleranceDegrees: Double = 5.0
 
+    // MARK: - Spiral sweep
+
+    /// Half-range of the spiral along yaw (degrees). Bounded by how far the
+    /// head can rotate while the eyes still hold the fixation dot — beyond
+    /// roughly ±25° the eye hits its mechanical limit and fixation breaks.
+    var sweepYawAmplitudeDegrees: Double = 22.0
+
+    /// Half-range along pitch (degrees). Deliberately smaller than yaw:
+    /// comfortable eye-in-head range is narrower vertically, so a symmetric
+    /// amplitude would lose fixation at the top and bottom of the field.
+    var sweepPitchAmplitudeDegrees: Double = 16.0
+
+    /// Number of spiral turns. Sets ring spacing — at 22° amplitude, 5 turns
+    /// gives ~3.9° between rings, close to the heatmap's 3° `--sigma-min` so
+    /// smoothing interpolates between measured rings rather than across gaps.
+    var sweepTurns: Double = 5.0
+
+    /// Where the spiral starts, as a fraction of full amplitude. Skips the
+    /// degenerate tight loop at the exact centre (which would require an
+    /// impossibly fast direction change); neutral is already well covered by
+    /// the settle and return phases.
+    var sweepInnerRadiusFraction: Double = 0.12
+
+    /// Duration of a full traversal, counted in seconds of *following* — time
+    /// while the guide is stalled or paused does not count. With the defaults
+    /// this puts the guide at ~5°/s, far below
+    /// `guidedMaxAngularVelocityDegPerSec`, and yields ~4500 samples at 60 Hz
+    /// (~1500 Aria eye frames at 20 Hz).
+    var sweepDurationSeconds: Double = 75.0
+
+    /// How far the head may lag the guide before the guide stops and waits.
+    var sweepFollowToleranceDegrees: Double = 7.0
+
+    /// Tighter error required to resume after a stall (hysteresis, so a head
+    /// hovering at the boundary doesn't chatter between the two states).
+    /// Must be < `sweepFollowToleranceDegrees`.
+    var sweepFollowResumeDegrees: Double = 5.0
+
     // MARK: - UI
 
     /// Diameter of the fixed central fixation dot, in points (16–20 pt spec).
