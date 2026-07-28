@@ -1,0 +1,7 @@
+# Recorded capture sessions — data, never commit
+captures/
+*.mp4
+
+# Python
+__pycache__/
+*.pyc
