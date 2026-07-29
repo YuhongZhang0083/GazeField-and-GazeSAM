@@ -93,7 +93,8 @@ struct InstructionsView: View {
             return [
                 "Look at the red dot and keep looking at it. Your eyes never leave it — only your head moves.",
                 "Slowly circle your nose around the dot, as if drawing rings on the wall behind the phone. Make each circle a little wider than the last.",
-                "A grid at the bottom of the screen shows the field of head directions. Squares fill in green as you visit them, and you feel a small tap each time one completes.",
+                "A small grid appears around the red dot showing the field of head directions. Squares fill in green as you visit them, and you feel a small tap each time one completes.",
+                "The grid is small enough to read without looking away from the dot — keep your eyes on the dot and take it in with the same look.",
                 "Keep moving until the grid is full. There is nothing to aim at or match — just cover every square.",
                 "Go slowly. Fast movements are not counted, so rushing makes the grid fill more slowly, not faster.",
                 "There is no time limit and no fixed sequence. Any order is fine."

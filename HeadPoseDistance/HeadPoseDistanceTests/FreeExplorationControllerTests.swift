@@ -140,9 +140,9 @@ final class FreeExplorationControllerTests: XCTestCase {
                           yaw: config.coverageYawAmplitudeDegrees * 0.8, pitch: 0)
 
         XCTAssertEqual(output.protocolPhase, .explore)
-        XCTAssertEqual(output.coverage?.currentRow, 2)
-        XCTAssertEqual(output.coverage?.currentColumn, 6)
-        XCTAssertTrue(controller.grid.isCovered(column: 6, row: 2),
+        XCTAssertEqual(output.coverage?.currentRow, 3)
+        XCTAssertEqual(output.coverage?.currentColumn, 8)
+        XCTAssertTrue(controller.grid.isCovered(column: 8, row: 3),
                       "the visited cell specifically must be covered")
         XCTAssertGreaterThan(output.coverage?.coveredFraction ?? 0, 0)
     }

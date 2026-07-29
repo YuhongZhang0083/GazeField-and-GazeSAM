@@ -10,23 +10,34 @@ final class CoverageGridTests: XCTestCase {
 
     // MARK: - Geometry
 
-    /// 7 × 5 over an elliptical field: the four corners fall outside and are
-    /// not required, leaving 31 cells. If this number moves, the completion
-    /// threshold and the session length move with it.
+    /// 9 × 7 over an elliptical field: the corners fall outside and are not
+    /// required, leaving 51 cells. If this number moves, session length and the
+    /// completion threshold move with it.
     func testEllipticalFieldHasExpectedRequiredCellCount() {
         let grid = makeGrid()
-        XCTAssertEqual(grid.requiredCellCount, 31)
+        XCTAssertEqual(grid.requiredCellCount, 51)
         // Corners are outside the ellipse.
         XCTAssertFalse(grid.isRequired(column: 0, row: 0))
-        XCTAssertFalse(grid.isRequired(column: 6, row: 0))
-        XCTAssertFalse(grid.isRequired(column: 0, row: 4))
-        XCTAssertFalse(grid.isRequired(column: 6, row: 4))
+        XCTAssertFalse(grid.isRequired(column: 8, row: 0))
+        XCTAssertFalse(grid.isRequired(column: 0, row: 6))
+        XCTAssertFalse(grid.isRequired(column: 8, row: 6))
         // Centre and the axis extremes are inside.
-        XCTAssertTrue(grid.isRequired(column: 3, row: 2))
-        XCTAssertTrue(grid.isRequired(column: 0, row: 2))
-        XCTAssertTrue(grid.isRequired(column: 6, row: 2))
-        XCTAssertTrue(grid.isRequired(column: 3, row: 0))
-        XCTAssertTrue(grid.isRequired(column: 3, row: 4))
+        XCTAssertTrue(grid.isRequired(column: 4, row: 3))
+        XCTAssertTrue(grid.isRequired(column: 0, row: 3))
+        XCTAssertTrue(grid.isRequired(column: 8, row: 3))
+        XCTAssertTrue(grid.isRequired(column: 4, row: 0))
+        XCTAssertTrue(grid.isRequired(column: 4, row: 6))
+    }
+
+    /// Cell centres must stay inside the heatmap kernel's `--sigma-min` (3°)
+    /// times a small factor, otherwise the denser grid buys nothing: smoothing
+    /// would still be bridging unmeasured gaps between cells.
+    func testCellSpacingIsFineEnoughForTheHeatmapKernel() {
+        let grid = makeGrid()
+        let yawSpacing = 2 * grid.yawAmplitudeDegrees / Double(grid.columns)
+        let pitchSpacing = 2 * grid.pitchAmplitudeDegrees / Double(grid.rows)
+        XCTAssertLessThanOrEqual(yawSpacing, 5.0)
+        XCTAssertLessThanOrEqual(pitchSpacing, 5.0)
     }
 
     /// Yaw increases to the right, pitch increases upward (row 0 is the top) —
@@ -35,12 +46,12 @@ final class CoverageGridTests: XCTestCase {
     func testCellMappingOrientation() {
         let grid = makeGrid()
         let centre = grid.cell(yawDegrees: 0, pitchDegrees: 0)
-        XCTAssertEqual(centre?.column, 3)
-        XCTAssertEqual(centre?.row, 2)
+        XCTAssertEqual(centre?.column, 4)
+        XCTAssertEqual(centre?.row, 3)
 
         let right = grid.cell(yawDegrees: 20, pitchDegrees: 0)
-        XCTAssertEqual(right?.column, 6)
-        XCTAssertEqual(right?.row, 2)
+        XCTAssertEqual(right?.column, 8)
+        XCTAssertEqual(right?.row, 3)
 
         let left = grid.cell(yawDegrees: -20, pitchDegrees: 0)
         XCTAssertEqual(left?.column, 0)
@@ -49,7 +60,7 @@ final class CoverageGridTests: XCTestCase {
         XCTAssertEqual(up?.row, 0, "positive pitch must map to the TOP row")
 
         let down = grid.cell(yawDegrees: 0, pitchDegrees: -15)
-        XCTAssertEqual(down?.row, 4)
+        XCTAssertEqual(down?.row, 6)
     }
 
     func testPosesFarOutsideTheFieldAreRejected() {
@@ -66,7 +77,7 @@ final class CoverageGridTests: XCTestCase {
         let overshoot = grid.cell(yawDegrees: config.coverageYawAmplitudeDegrees * 1.1,
                                   pitchDegrees: 0)
         XCTAssertEqual(overshoot?.column, grid.columns - 1)
-        XCTAssertEqual(overshoot?.row, 2)
+        XCTAssertEqual(overshoot?.row, 3)
     }
 
     // MARK: - Accumulation
@@ -77,11 +88,11 @@ final class CoverageGridTests: XCTestCase {
         for i in 1..<config.coverageSamplesPerCell {
             let completed = grid.add(yawDegrees: 0, pitchDegrees: 0)
             XCTAssertFalse(completed, "cell completed early at sample \(i)")
-            XCTAssertFalse(grid.isCovered(column: 3, row: 2))
+            XCTAssertFalse(grid.isCovered(column: 4, row: 3))
         }
         let completed = grid.add(yawDegrees: 0, pitchDegrees: 0)
         XCTAssertTrue(completed, "the final sample must report completion")
-        XCTAssertTrue(grid.isCovered(column: 3, row: 2))
+        XCTAssertTrue(grid.isCovered(column: 4, row: 3))
     }
 
     /// Completion is reported exactly once, so the haptic ticks once per cell.
@@ -103,8 +114,8 @@ final class CoverageGridTests: XCTestCase {
         // Upper-left corner cell: its CENTRE is outside the ellipse (so the
         // cell is not required) but its inner corner is still within the
         // acceptance radius, so the cell is reachable.
-        let yaw = -config.coverageYawAmplitudeDegrees * 0.72
-        let pitch = config.coveragePitchAmplitudeDegrees * 0.62
+        let yaw = -config.coverageYawAmplitudeDegrees * 0.79
+        let pitch = config.coveragePitchAmplitudeDegrees * 0.73
         guard let cell = grid.cell(yawDegrees: yaw, pitchDegrees: pitch) else {
             return XCTFail("pose should still be inside the accepted field")
         }
@@ -122,17 +133,17 @@ final class CoverageGridTests: XCTestCase {
 
     func testFillFractionRampsFromZeroToOne() {
         var grid = makeGrid()
-        XCTAssertEqual(grid.fillFraction(column: 3, row: 2), 0)
+        XCTAssertEqual(grid.fillFraction(column: 4, row: 3), 0)
         for _ in 0..<(config.coverageSamplesPerCell / 2) {
             _ = grid.add(yawDegrees: 0, pitchDegrees: 0)
         }
-        let mid = grid.fillFraction(column: 3, row: 2)
+        let mid = grid.fillFraction(column: 4, row: 3)
         XCTAssertGreaterThan(mid, 0)
         XCTAssertLessThan(mid, 1)
         for _ in 0..<config.coverageSamplesPerCell {
             _ = grid.add(yawDegrees: 0, pitchDegrees: 0)
         }
-        XCTAssertEqual(grid.fillFraction(column: 3, row: 2), 1, "must clamp at 1")
+        XCTAssertEqual(grid.fillFraction(column: 4, row: 3), 1, "must clamp at 1")
     }
 
     // MARK: - Progress
@@ -196,7 +207,7 @@ final class CoverageGridTests: XCTestCase {
         }
         grid.reset()
         XCTAssertEqual(grid.coveredRequiredCellCount, 0)
-        XCTAssertEqual(grid.fillFraction(column: 3, row: 2), 0)
+        XCTAssertEqual(grid.fillFraction(column: 4, row: 3), 0)
     }
 
     // MARK: - View payload

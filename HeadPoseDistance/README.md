@@ -197,12 +197,13 @@ That is the whole protocol. No target, no pacing, no fixed order.
 
 ### The grid
 
-`CoverageGrid` bins neutral-relative (yaw, pitch) into a 7 × 5 grid over an
+`CoverageGrid` bins neutral-relative (yaw, pitch) into a 9 × 7 grid over an
 elliptical field — 22° yaw × 16° pitch. The field is elliptical because
 comfortable eye-in-head range is narrower vertically, so a symmetric field
-would lose fixation at the top and bottom; the four corner cells fall outside
-the ellipse, leaving **31 required cells** with centres ~6° apart in yaw, fine
-enough for the heatmap kernel to interpolate between them.
+would lose fixation at the top and bottom; the corner cells fall outside the
+ellipse, leaving **51 required cells** with centres ~4.9° apart in yaw and
+~4.6° in pitch — comfortably inside the heatmap kernel's `--sigma-min 3`, so
+smoothing interpolates between measured cells rather than across gaps.
 
 - A cell needs `coverageSamplesPerCell` (12, ≈0.2 s at 60 Hz) samples before it
   counts. That dwell requirement stops a fast swing through a cell from
@@ -226,17 +227,30 @@ threshold, because the wedges stay empty.
 
 ### Reading the grid without breaking fixation
 
-The grid sits at the bottom of the screen, far from the dot, and squares fill
-green as they are visited with a thin white outline marking where the head is
-now — so it reads as a map, not an abstract meter.
+The grid is drawn **centred on the fixation dot**, not at the bottom of the
+screen. That is the whole trick: at 11 pt cells a 9 × 7 grid spans ~115 × 89 pt,
+which is roughly **2° of visual angle** at a 55 cm working distance — about the
+width of the fovea. The participant takes in the entire grid *while fixating
+the dot*, with no eye movement at all.
 
-Glancing at it does break fixation, which matters because every sample's value
-depends on the eyes being on the dot. Two mitigations: a **haptic tick fires
-each time a square completes**, so progress can be felt without looking at all;
-and the caption retires after `explorationInstructionSeconds` rather than
-standing next to the fixation target. Residual contamination is episodic rather
-than systematic, and once Aria eye frames are aligned a glance to the bottom of
-the screen is a large, obvious pupil excursion that can be dropped offline.
+The first version sat in the bottom bar and pulled the gaze down to check
+progress, contaminating exactly the samples it was reporting on. Co-location is
+the same reasoning that puts the virtual head under the dot.
+
+Supporting details:
+
+- Squares fill green as they are visited, with a thin outline on the cell the
+  head is in right now, so the grid reads as a **map** rather than a meter.
+- A **haptic tick fires each time a square completes**, so progress can be felt
+  even without looking.
+- The virtual head fades to 0.22 opacity during free exploration (versus 0.5 in
+  eight-spoke mode) so the grid on top of it stays legible. In this mode the
+  head is redundant for orientation anyway — the current-cell marker already
+  shows where the head points — but it is kept for the distance and lateral
+  position affordance.
+- The caption retires after `explorationInstructionSeconds` rather than standing
+  next to the fixation target, and the bottom bar keeps only a small numeric
+  `covered/required` readout.
 
 ### Export
 
@@ -476,7 +490,8 @@ stage-transition JSON round-trip).
 New in the free-exploration update:
 
 - `CoverageGridTests` — required-cell count over the elliptical field, cell
-  mapping orientation (yaw right, pitch up), rejection of poses outside the
+  spacing against the heatmap kernel, cell mapping orientation (yaw right,
+  pitch up), rejection of poses outside the
   field, overshoot clamping, the dwell requirement, completion reported exactly
   once per cell, non-required cells counted but never reported, and the two
   negative tests that encode the original problem: **centre-only movement stays
@@ -490,4 +505,4 @@ New in the free-exploration update:
   caption rules (names a body part, never says "follow" or "outline", retires
   after its window).
 
-Current status: **158 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).
+Current status: **159 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).

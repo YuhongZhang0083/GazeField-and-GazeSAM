@@ -229,12 +229,17 @@ struct MeasurementConfig: Codable, Equatable {
     var coverageYawAmplitudeDegrees: Double = 22.0
     var coveragePitchAmplitudeDegrees: Double = 16.0
 
-    /// Grid resolution. 7 × 5 over an elliptical field gives 31 required
-    /// cells — coarse enough to fill in a reasonable session, fine enough that
-    /// cell centres sit ~6° apart in yaw, so the heatmap kernel
-    /// (`--sigma-min 3`) interpolates between measured cells.
-    var coverageColumns: Int = 7
-    var coverageRows: Int = 5
+    /// Grid resolution. 9 × 7 over an elliptical field gives 51 required
+    /// cells, with centres ~4.9° apart in yaw and ~4.6° in pitch — comfortably
+    /// inside the heatmap kernel's `--sigma-min 3`, so smoothing interpolates
+    /// between measured cells rather than across gaps.
+    ///
+    /// Raising these costs session time roughly linearly (each new cell needs
+    /// its own dwell) and shrinks the on-screen cells; 11 × 9 is about the
+    /// limit before individual cells stop being distinguishable at the foveal
+    /// size the grid is drawn at.
+    var coverageColumns: Int = 9
+    var coverageRows: Int = 7
 
     /// Usable samples a cell needs before it counts as covered. At 60 Hz this
     /// is a ~0.2 s dwell requirement, which stops a fast swing through a cell

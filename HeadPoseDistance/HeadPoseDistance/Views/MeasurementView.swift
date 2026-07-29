@@ -33,8 +33,16 @@ struct MeasurementView: View {
                 // fixation dot. Dimmed during recording so the red dot stays
                 // dominant.
                 CenteredHeadBoundary(snapshot: viewModel.snapshot,
-                                     dimmed: viewModel.snapshot.stage == .recording)
+                                     opacity: headOpacity)
                     .position(anchor)
+
+                // Coverage grid (free exploration only), co-located with the
+                // dot so it can be read without looking away from it. Drawn
+                // over the dimmed head, under the dot.
+                if let coverage = viewModel.snapshot.guidance?.coverage {
+                    CenteredCoverageGrid(coverage: coverage)
+                        .position(anchor)
+                }
 
                 // Guidance ring / arrows / text, drawn around — never over —
                 // the dot.
@@ -85,6 +93,16 @@ struct MeasurementView: View {
         } message: {
             Text(viewModel.neutralCaptureMessage ?? "")
         }
+    }
+
+    /// How present the virtual head is. It is a positioning aid, so it fades
+    /// once recording starts — and fades further in free exploration, where the
+    /// coverage grid sits on top of it and must remain readable. In that mode
+    /// the head is also redundant for orientation: the grid's current-cell
+    /// marker already shows where the head is pointing.
+    private var headOpacity: Double {
+        guard viewModel.snapshot.stage == .recording else { return 1.0 }
+        return viewModel.snapshot.recordingMode == .freeExploration ? 0.22 : 0.5
     }
 
     /// The dense numeric panel is a positioning aid, shown only before
@@ -266,8 +284,6 @@ struct MeasurementView: View {
                 // exploration; that mode shows the coverage grid instead.
                 if viewModel.snapshot.recordingMode == .eightSpoke {
                     DirectionChecklist(completed: viewModel.snapshot.completedDirections)
-                } else if let coverage = viewModel.snapshot.guidance?.coverage {
-                    CoverageGridView(coverage: coverage)
                 }
                 HStack {
                     if viewModel.snapshot.recordingMode == .freeExploration {
@@ -532,46 +548,42 @@ struct DirectionChecklist: View {
     }
 }
 
-/// The coverage grid: the whole interface for free exploration.
+/// The coverage grid: the whole interface for free exploration, drawn
+/// **centred on the fixation dot**.
 ///
-/// Each square is a patch of the (yaw, pitch) field — left/right is head yaw,
-/// up/down is head pitch, mirrored to match the virtual head. A square fills in
-/// as samples accumulate there and turns solid once it has enough. The
-/// participant moves until the grid is full; there is nothing to match, aim at,
-/// or interpret.
+/// Placement is the point. At this size the grid spans roughly 2° of visual
+/// angle at a 55 cm working distance, which is about the width of the fovea —
+/// so the participant reads the entire grid *while fixating the dot*, with no
+/// eye movement at all. The first version sat at the bottom of the screen and
+/// pulled the gaze down to check progress, which contaminated exactly the
+/// samples it was reporting on.
 ///
-/// It lives at the bottom of the screen, far from the fixation dot, and is
-/// deliberately glanceable in one look — a haptic tick fires whenever a square
-/// completes, so progress can be *felt* without looking at all.
-struct CoverageGridView: View {
+/// Each square is a patch of the (yaw, pitch) field: left/right is head yaw,
+/// up/down is head pitch, mirrored to match the virtual head, so turning right
+/// moves the marker right. A square fills in as samples accumulate there and
+/// goes solid once it has enough. The thin outline is the cell the head is in
+/// right now, which makes the grid read as a map rather than a meter.
+struct CenteredCoverageGrid: View {
     let coverage: ExplorationGuidanceState
 
-    private let cellSize: CGFloat = 15
-    private let spacing: CGFloat = 3
+    /// Sized so 9 × 7 cells span ~115 × 89 pt — inside the alignment oval, and
+    /// ~2° of visual angle at the working distance.
+    private let cellSize: CGFloat = 11
+    private let spacing: CGFloat = 2
 
     var body: some View {
-        VStack(spacing: 5) {
-            VStack(spacing: spacing) {
-                ForEach(0..<coverage.rows, id: \.self) { row in
-                    HStack(spacing: spacing) {
-                        ForEach(0..<coverage.columns, id: \.self) { column in
-                            cell(column: column, row: row)
-                        }
+        VStack(spacing: spacing) {
+            ForEach(0..<coverage.rows, id: \.self) { row in
+                HStack(spacing: spacing) {
+                    ForEach(0..<coverage.columns, id: \.self) { column in
+                        cell(column: column, row: row)
                     }
                 }
             }
-            Text(caption)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         }
+        .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Coverage \(coverage.coveredCells) of \(coverage.requiredCells) cells")
-    }
-
-    private var caption: String {
-        let remaining = max(0, coverage.requiredCells - coverage.coveredCells)
-        if remaining == 0 { return "Field covered" }
-        return "Fill the grid · eyes on the dot · \(remaining) to go"
     }
 
     @ViewBuilder
@@ -582,26 +594,23 @@ struct CoverageGridView: View {
         let fill = coverage.cellFill.indices.contains(index) ? coverage.cellFill[index] : 0
         let isCurrent = coverage.currentColumn == column && coverage.currentRow == row
 
-        RoundedRectangle(cornerRadius: 3)
+        RoundedRectangle(cornerRadius: 2)
             .fill(color(required: required, fill: fill))
             .frame(width: cellSize, height: cellSize)
             .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    // Where you are right now — a thin white outline, so the
-                    // grid reads as a map rather than an abstract meter.
-                    .stroke(Color.white.opacity(isCurrent ? 0.95 : 0), lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 2)
+                    .stroke(Color.white.opacity(isCurrent ? 0.9 : 0), lineWidth: 1.2)
             )
-            .opacity(required ? 1 : 0.18)
     }
 
     /// Empty → faint grey; partially sampled → dim green; complete → solid
-    /// green. Cells outside the elliptical field are dimmed by `opacity` above
-    /// and never need filling.
+    /// green. Cells outside the elliptical field are barely drawn: they convey
+    /// the shape of the field without implying they need filling.
     private func color(required: Bool, fill: Double) -> Color {
-        guard required else { return Color.white.opacity(0.10) }
-        if fill >= 1 { return Color.green.opacity(0.9) }
-        if fill <= 0 { return Color.white.opacity(0.12) }
-        return Color.green.opacity(0.25 + 0.45 * fill)
+        guard required else { return Color.white.opacity(0.05) }
+        if fill >= 1 { return Color.green.opacity(0.85) }
+        if fill <= 0 { return Color.white.opacity(0.16) }
+        return Color.green.opacity(0.22 + 0.45 * fill)
     }
 }
 
@@ -616,8 +625,10 @@ struct CoverageGridView: View {
 /// tracking data only.
 struct CenteredHeadBoundary: View {
     let snapshot: MeasurementSnapshot
-    /// Dimmed during recording so the red dot stays the dominant element.
-    var dimmed: Bool
+    /// Set by the caller: the head recedes during recording so the red dot
+    /// stays dominant, and recedes further in free exploration, where the
+    /// coverage grid is drawn on top of it and must stay legible.
+    var opacity: Double
 
     // The oval hugs the head with a small margin at the neutral distance
     // (the head fills ~85% of its frame — see VirtualHeadView's
@@ -652,7 +663,7 @@ struct CenteredHeadBoundary: View {
                     .offset(y: -122)
             }
         }
-        .opacity(dimmed ? 0.5 : 1.0)
+        .opacity(opacity)
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Head position: \(cueText ?? "aligned")")
