@@ -39,7 +39,8 @@ HeadPoseDistance/
 │   ├── Configuration/MeasurementConfig.swift   ← ALL thresholds/parameters
 │   ├── Support/    (MathSupport, Statistics, DeviceInfo)
 │   ├── AR/ARFaceTrackingManager.swift  ← owns ARSession, delegate
-│   ├── Geometry/   (FaceTransformCalculator, HeadPoseEstimator)
+│   ├── Geometry/   (FaceTransformCalculator, HeadPoseEstimator,
+│   │                ScreenGeometry ← dot-vs-camera offset)
 │   ├── Depth/      (TrueDepthDistanceEstimator, ScreenDistanceCalibrator)
 │   ├── Filtering/DistanceFilter.swift  ← median + EMA filters
 │   ├── Calibration/NeutralPoseCalibrator.swift
@@ -197,17 +198,31 @@ That is the whole protocol. No target, no pacing, no fixed order.
 
 ### The grid
 
-`CoverageGrid` bins neutral-relative (yaw, pitch) into a 9 × 7 grid over an
-elliptical field — 22° yaw × 16° pitch. The field is elliptical because
-comfortable eye-in-head range is narrower vertically, so a symmetric field
-would lose fixation at the top and bottom; the corner cells fall outside the
-ellipse, leaving **51 required cells** with centres ~4.9° apart in yaw and
-~4.6° in pitch — comfortably inside the heatmap kernel's `--sigma-min 3`, so
-smoothing interpolates between measured cells rather than across gaps.
+`CoverageGrid` bins neutral-relative (yaw, pitch) into an **11 × 9 grid over the
+full rectangular field** — ±25° yaw × ±18° pitch, so **all 99 cells are
+required, corners included**. The extent is set by where fixation breaks: the eye
+reaches its comfortable rotation limit around ±25–30°, past which the participant
+can no longer hold the dot and the sample stops meaning anything.
 
-- A cell needs `coverageSamplesPerCell` (12, ≈0.2 s at 60 Hz) samples before it
-  counts. That dwell requirement stops a fast swing through a cell from
-  claiming it on one or two frames.
+Cells are 4.55° × 4.00°, so the **largest hole a "covered" field can contain is
+half a cell diagonal = 3.03°** — matching the heatmap kernel's `--sigma-min 3`.
+That is the number that matters: it bounds what the kernel ever has to bridge by
+extrapolation. `coverageRequiresCorners: false` falls back to the inscribed
+ellipse, gentler on the corners (they demand the largest combined rotation) but
+leaving them unmeasured.
+
+**Acceptance and requirement are deliberately separate.** Which poses are accepted
+is a per-axis bound; which cells must be filled is the rectangle-or-ellipse
+choice. An earlier version coupled them, with a radial acceptance gate at 1.15
+normalized radius — and the corner cells' own centres sit at radius 1.271, so they
+were required but rejected: unfillable, and every session would have stalled short
+of completion. `CoverageGridTests` now asserts that **every required cell
+round-trips from its own centre**, the invariant that catches this class of bug.
+
+- A cell needs `coverageSamplesPerCell` (8, ≈0.13 s at 60 Hz) samples before it
+  counts. That dwell requirement stops a fast swing through a cell from claiming
+  it on one or two frames. 99 cells × 8 samples ≈ 13 s of pure dwell; travel
+  between cells dominates the real session length.
 - Samples only count while the protocol is unpaused (face tracked, phone still,
   distance and lateral position inside their bands) **and** head speed is below
   `guidedMaxAngularVelocityDegPerSec`. Rushing therefore makes the grid fill
@@ -216,9 +231,10 @@ smoothing interpolates between measured cells rather than across gaps.
   outside are ignored, so the coverage claim stays honest.
 - Cells outside the ellipse are never required but are still counted — extra
   data is never discarded.
-- The session ends at `coverageCompletionFraction` (0.92), not 1.0: the most
-  extreme cells are unreachable for some people and demanding all of them would
-  stall indefinitely. Stopping early is safe — coverage is exported per sample.
+- The session ends at `coverageCompletionFraction` (0.90), not 1.0: the corner
+  cells demand ~27.8° of combined rotation and are unreachable for some people. At
+  99 cells this allows 9 misses — the four corners plus five spare. Stopping early
+  is safe: coverage is exported per sample.
 
 `CoverageGridTests` pins the behaviour that matters, including two negative
 tests that encode the original problem: centre-only movement leaves coverage
@@ -228,10 +244,11 @@ threshold, because the wedges stay empty.
 ### Reading the grid without breaking fixation
 
 The grid is drawn **centred on the fixation dot**, not at the bottom of the
-screen. That is the whole trick: at 11 pt cells a 9 × 7 grid spans ~115 × 89 pt,
-which is roughly **2° of visual angle** at a 55 cm working distance — about the
-width of the fovea. The participant takes in the entire grid *while fixating
-the dot*, with no eye movement at all.
+screen. That is the whole trick: at 10 pt cells an 11 × 9 grid spans 130 × 106 pt,
+subtending **2.2° at 55 cm** (≈ the width of the fovea) or 3.0° at 41 cm.
+Individual cells are 10–14 arcmin — an order of magnitude above the ~1 arcmin
+acuity limit, so they stay individually distinguishable. The participant takes in
+the whole grid while fixating the dot, without a saccade.
 
 The first version sat in the bottom bar and pulled the gaze down to check
 progress, contaminating exactly the samples it was reporting on. Co-location is
@@ -267,6 +284,42 @@ The per-sample cell lets the offline pipeline **recompute coverage
 independently** instead of trusting the app's own count.
 `SessionMetadata.recordingMode` (`free_exploration` / `eight_spoke`) makes every
 export self-describing.
+
+## Setup alignment targets the dot, not the camera
+
+The fixation dot sits at `dotAnchorYFraction` (0.26) of the screen height —
+deliberately near the camera, but still ~230 pt below it. A participant whose eye
+is correctly on the **dot's normal axis** is therefore ~3.9 cm below the *camera*
+axis.
+
+`FaceAlignmentEvaluator` used to measure setup alignment from the camera axis, so
+that correctly positioned participant read as several centimetres too low, was
+told to "Move up", and had their virtual head drawn low in the oval. Following
+that cue puts the eye on the camera axis, where the gaze to the dot is angled
+downward by **5.4° at a 41 cm working distance** — precisely the bias the neutral
+pose exists to eliminate. (The earlier device validation recorded neutral at
+translation ≈ 0, i.e. on the camera axis, with a residual centre pitch of +2.2°:
+the same effect.)
+
+`ScreenGeometry` converts the dot's on-screen position into a real offset from the
+camera axis, and the evaluator measures setup alignment against *that*. The
+correction applies only before a neutral pose exists — afterwards the neutral
+translation is the reference and already encodes the position, so applying it
+twice would bias the fixed bounds used during recording.
+
+Two inputs are approximations, both immaterial at this scale:
+
+| Input | Basis | Error contribution |
+|---|---|---|
+| points-per-inch | display scale (153.3 @3x, 163 @2x) rather than a per-model table | ±2.3 mm |
+| `cameraCenterYPoints` | 28 pt, approximate and mildly device-dependent | ±1.7 mm |
+
+Against a 5 cm `lateralOffsetToleranceMeters` and a 3.9 cm correction, a few
+millimetres of uncertainty does not matter — and it is vastly better than the zero
+it replaces. `ScreenGeometryTests` pins the direction of the relationship
+(correction shrinks as the dot approaches the camera, vanishes at the camera),
+reproduces the reported "Move up" symptom without the fix, confirms it disappears
+with the fix, and confirms a genuinely low face is *still* told to move up.
 
 ## Guided protocol: pose-driven state machine
 
@@ -489,9 +542,17 @@ stage-transition JSON round-trip).
 
 New in the free-exploration update:
 
-- `CoverageGridTests` — required-cell count over the elliptical field, cell
-  spacing against the heatmap kernel, cell mapping orientation (yaw right,
-  pitch up), rejection of poses outside the
+- `ScreenGeometryTests` — the dot-vs-camera correction: scale-based
+  points-per-inch, a physical-plausibility anchor on the conversion chain,
+  correction sign and magnitude, monotonicity in dot position, plus end-to-end
+  evaluator checks that reproduce the reported "Move up" symptom, verify the fix
+  removes it, verify a genuinely low face is still corrected, and verify the
+  correction is not applied twice once a neutral pose exists.
+- `CoverageGridTests` — full-rectangle required-cell count, **every required cell
+  reachable from its own centre**, whole-field completability, completion
+  surviving the loss of all four corners, largest-possible-gap against the heatmap
+  kernel, field extent bounds, cell mapping orientation (yaw right, pitch up),
+  rejection of poses outside the
   field, overshoot clamping, the dwell requirement, completion reported exactly
   once per cell, non-required cells counted but never reported, and the two
   negative tests that encode the original problem: **centre-only movement stays
@@ -505,4 +566,4 @@ New in the free-exploration update:
   caption rules (names a body part, never says "follow" or "outline", retires
   after its window).
 
-Current status: **159 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).
+Current status: **177 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).

@@ -99,6 +99,21 @@ final class MeasurementPipeline {
         self.dotCenter = dotCenter
     }
 
+    /// Where the face should sit during setup: on the fixation dot's normal
+    /// axis, not on the camera axis. Zero until the view has reported its
+    /// geometry, which keeps the behaviour identical to the old code path until
+    /// real numbers arrive.
+    private var expectedFaceOffset: ExpectedFaceOffset {
+        guard screenScale > 0, screenWidthPoints > 0, dotCenter != .zero else {
+            return .zero
+        }
+        return ScreenGeometry(widthPoints: screenWidthPoints,
+                              scale: screenScale,
+                              dotCenterGlobal: dotCenter,
+                              cameraCenterYPoints: config.cameraCenterYPoints)
+            .expectedFaceOffset
+    }
+
     func setDebugPreviewEnabled(_ enabled: Bool) {
         debugPreviewEnabled = enabled
     }
@@ -331,7 +346,8 @@ final class MeasurementPipeline {
             translation: pose?.translation,
             neutralTranslation: neutralTranslation,
             faceTracked: faceTracked,
-            config: config)
+            config: config,
+            expectedOffset: expectedFaceOffset)
         // Lateral bounds are only meaningful once a neutral position exists.
         let lateralInBounds = neutralPose == nil ? true : alignment.withinLateralTolerance
 

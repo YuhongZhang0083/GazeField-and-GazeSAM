@@ -566,9 +566,10 @@ struct DirectionChecklist: View {
 struct CenteredCoverageGrid: View {
     let coverage: ExplorationGuidanceState
 
-    /// Sized so 9 × 7 cells span ~115 × 89 pt — inside the alignment oval, and
-    /// ~2° of visual angle at the working distance.
-    private let cellSize: CGFloat = 11
+    /// Sized so 11 × 9 cells span ~130 × 106 pt — inside the 136 × 154 pt
+    /// alignment oval, and ~2.2° of visual angle at the working distance, which
+    /// still fits within the fovea.
+    private let cellSize: CGFloat = 10
     private let spacing: CGFloat = 2
 
     var body: some View {

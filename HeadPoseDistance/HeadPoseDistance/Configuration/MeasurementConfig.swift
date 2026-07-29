@@ -221,36 +221,52 @@ struct MeasurementConfig: Codable, Equatable {
     // MARK: - Free exploration / coverage
 
     /// Extent of the (yaw, pitch) field the participant must cover, as a
-    /// half-range in degrees. Bounded by how far the head can rotate while the
-    /// eyes still hold the fixation dot — beyond roughly ±25° the eye reaches
-    /// its mechanical limit and fixation breaks. Pitch is deliberately smaller:
-    /// comfortable eye-in-head range is narrower vertically, so a symmetric
-    /// field would lose fixation at the top and bottom.
-    var coverageYawAmplitudeDegrees: Double = 22.0
-    var coveragePitchAmplitudeDegrees: Double = 16.0
+    /// half-range in degrees. Set to the practical limit of the protocol: the
+    /// eye reaches its comfortable rotation limit around ±25–30°, past which
+    /// fixation on the dot breaks and the sample stops meaning anything. Pitch
+    /// stays smaller because comfortable eye-in-head range is narrower
+    /// vertically.
+    var coverageYawAmplitudeDegrees: Double = 25.0
+    var coveragePitchAmplitudeDegrees: Double = 18.0
 
-    /// Grid resolution. 9 × 7 over an elliptical field gives 51 required
-    /// cells, with centres ~4.9° apart in yaw and ~4.6° in pitch — comfortably
-    /// inside the heatmap kernel's `--sigma-min 3`, so smoothing interpolates
-    /// between measured cells rather than across gaps.
+    /// Whether the corner cells — outside the inscribed ellipse — must also be
+    /// covered. True means the required field is the **full rectangle**, so the
+    /// grid spans the entire configured field with no unreachable-looking gaps.
     ///
-    /// Raising these costs session time roughly linearly (each new cell needs
-    /// its own dwell) and shrinks the on-screen cells; 11 × 9 is about the
-    /// limit before individual cells stop being distinguishable at the foveal
-    /// size the grid is drawn at.
-    var coverageColumns: Int = 9
-    var coverageRows: Int = 7
+    /// Set false to require only the inscribed ellipse, which is gentler
+    /// (corners demand the largest combined rotation: at the default amplitudes
+    /// the corner cell centre is ~27° of combined eye-in-head angle) but leaves
+    /// the corners of the field unmeasured, so the heatmap extrapolates there.
+    var coverageRequiresCorners: Bool = true
+
+    /// Grid resolution, scaled with the field extent so cells stay ~4.5° wide:
+    /// 11 × 9 over the full rectangle gives 99 required cells with centres
+    /// ~4.5° apart in yaw and ~4.0° in pitch. That bounds the largest possible
+    /// unmeasured hole at ~3° (half the cell diagonal), matching the heatmap
+    /// kernel's `--sigma-min 3` so smoothing interpolates between measured
+    /// cells rather than bridging gaps.
+    ///
+    /// This is about the practical limit: raising it further costs session time
+    /// roughly linearly (each cell needs its own dwell) and shrinks the
+    /// on-screen cells below the size at which they can be told apart at the
+    /// foveal scale the grid is drawn at.
+    var coverageColumns: Int = 11
+    var coverageRows: Int = 9
 
     /// Usable samples a cell needs before it counts as covered. At 60 Hz this
-    /// is a ~0.2 s dwell requirement, which stops a fast swing through a cell
-    /// from claiming it on one or two frames.
-    var coverageSamplesPerCell: Int = 12
+    /// is a ~0.13 s dwell requirement, which stops a fast swing through a cell
+    /// from claiming it on one or two frames. Lowered alongside the denser grid
+    /// so total session time stays reasonable: 99 cells × 8 samples ≈ 13 s of
+    /// pure dwell, with travel between cells dominating the real duration.
+    var coverageSamplesPerCell: Int = 8
 
-    /// Fraction of required cells that must be covered to finish. Not 1.0: the
-    /// most extreme cells are unreachable for some people, and demanding all of
-    /// them would stall the session indefinitely. Stopping early is always safe
+    /// Fraction of required cells that must be covered to finish. Not 1.0: with
+    /// the corners required, the most extreme cells demand the largest combined
+    /// rotation and are unreachable for some people; demanding every one would
+    /// stall the session indefinitely. At 99 cells this allows ~10 misses, which
+    /// covers the four corners with room to spare. Stopping early is always safe
     /// because per-sample coverage is exported.
-    var coverageCompletionFraction: Double = 0.92
+    var coverageCompletionFraction: Double = 0.90
 
     /// How long the opening caption stays up after exploration starts, before
     /// the coverage grid is left to carry the state.
@@ -262,6 +278,17 @@ struct MeasurementConfig: Codable, Equatable {
     var explorationInstructionSeconds: Double = 6.0
 
     // MARK: - UI
+
+    /// Vertical position of the TrueDepth camera centre, in global display
+    /// points (y measured from the top of the display). On Face ID iPhones the
+    /// camera sits in the notch / Dynamic Island near the top.
+    ///
+    /// Used to convert the fixation dot's on-screen position into a real offset
+    /// from the camera axis, which is what makes the setup cue target the dot
+    /// rather than the camera. Approximate and mildly device-dependent, but the
+    /// quantity it corrects is ~230 pt, so a ±10 pt error here is a ~4% error on
+    /// a few-centimetre correction — immaterial against a 5 cm tolerance.
+    var cameraCenterYPoints: Double = 28.0
 
     /// Diameter of the fixed central fixation dot, in points (16–20 pt spec).
     var dotDiameterPoints: Double = 18.0

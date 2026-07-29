@@ -60,13 +60,25 @@ enum FaceAlignmentEvaluator {
     ///   - translation: current camera-space face translation.
     ///   - neutralTranslation: the camera-space face translation captured at
     ///     neutral. When present, lateral/vertical offsets are measured
-    ///     relative to it (the fixed bounds); otherwise from the camera axis.
+    ///     relative to it (the fixed bounds).
+    ///   - expectedOffset: where the face *should* sit during setup, as an
+    ///     offset from the camera axis. Applies ONLY before a neutral pose
+    ///     exists; afterwards the neutral translation is the reference and
+    ///     already encodes the position.
+    ///
+    ///     This is not a cosmetic correction. The fixation dot sits well below
+    ///     the TrueDepth camera, so a participant correctly aligned with the
+    ///     dot is several centimetres below the camera axis. Measuring from the
+    ///     camera axis reported that correct position as "too low" and told them
+    ///     to "Move up" — onto the camera axis, where the gaze to the dot is
+    ///     angled downward, which is exactly what the neutral pose must not be.
     static func evaluate(primaryDistanceMeters: Double?,
                          deviationMeters: Double?,
                          translation: SIMD3<Float>?,
                          neutralTranslation: SIMD3<Float>?,
                          faceTracked: Bool,
                          config: MeasurementConfig,
+                         expectedOffset: ExpectedFaceOffset = .zero,
                          convention: AlignmentConvention = .default) -> FaceAlignmentState {
         var state = FaceAlignmentState()
         state.faceTracked = faceTracked
@@ -97,13 +109,17 @@ enum FaceAlignmentEvaluator {
         }
 
         // --- Lateral / vertical offset ---
-        // Relative to the neutral face position once captured (fixed bounds
-        // for the turning phase), else relative to the camera axis (setup).
+        // Relative to the neutral face position once captured (fixed bounds for
+        // the turning phase); during setup, relative to the position that puts
+        // the eye on the dot's normal axis.
         if let t = translation {
             let dy = Double(t.y - (neutralTranslation?.y ?? 0))
             let dx = Double(t.x - (neutralTranslation?.x ?? 0))
-            let right = convention.userRightFromCameraY * dy
-            let up = convention.userUpFromCameraX * dx
+            // The expected offset is measured from the camera axis, so it only
+            // applies while the camera axis is the reference.
+            let target: ExpectedFaceOffset = neutralTranslation == nil ? expectedOffset : .zero
+            let right = convention.userRightFromCameraY * dy - target.userRightMeters
+            let up = convention.userUpFromCameraX * dx - target.userUpMeters
             state.userRightOffsetMeters = right
             state.userUpOffsetMeters = up
             state.withinLateralTolerance =
