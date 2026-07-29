@@ -57,7 +57,6 @@ struct VirtualHeadView: UIViewRepresentable {
     func updateUIView(_ view: SCNView, context: Context) {
         guard let root = view.scene?.rootNode,
               let head = root.childNode(withName: "head", recursively: false) else { return }
-        updateGuide(root.childNode(withName: "guideHead", recursively: false))
         SCNTransaction.begin()
         // Short implicit animation smooths 15 Hz snapshot updates without
         // adding perceptible lag.
@@ -68,25 +67,44 @@ struct VirtualHeadView: UIViewRepresentable {
             pitchDegrees: pitchDegrees,
             rollDegrees: rollDegrees)
 
-        let dx = Float(userRightOffsetMeters ?? 0) * Self.offsetScale
-        let dy = Float(userUpOffsetMeters ?? 0) * Self.offsetScale
-        head.simdPosition = SIMD3<Float>(dx.clamped(to: -0.8...0.8),
-                                         dy.clamped(to: -0.8...0.8),
-                                         0)
-
-        let deviation = Float(distanceDeviationMeters ?? 0)
-        let scale = (1 - deviation * Self.distanceScalePerMeter).clamped(to: 0.6...1.5)
+        head.simdPosition = Self.headPosition(userRightOffsetMeters: userRightOffsetMeters,
+                                              userUpOffsetMeters: userUpOffsetMeters)
+        let scale = Self.headScale(distanceDeviationMeters: distanceDeviationMeters)
         head.simdScale = SIMD3<Float>(repeating: scale)
 
         // Tracking-lost state: fade toward a ghost outline.
         head.opacity = faceTracked ? 1.0 : 0.22
 
         SCNTransaction.commit()
+
+        updateGuide(root.childNode(withName: "guideHead", recursively: false),
+                    position: head.simdPosition, scale: scale)
+    }
+
+    /// Lateral shift of the head, in scene units.
+    static func headPosition(userRightOffsetMeters: Double?,
+                             userUpOffsetMeters: Double?) -> SIMD3<Float> {
+        let dx = Float(userRightOffsetMeters ?? 0) * offsetScale
+        let dy = Float(userUpOffsetMeters ?? 0) * offsetScale
+        return SIMD3<Float>(dx.clamped(to: -0.8...0.8), dy.clamped(to: -0.8...0.8), 0)
+    }
+
+    /// Head size as a function of distance drift (+ = too far → smaller).
+    static func headScale(distanceDeviationMeters: Double?) -> Float {
+        let deviation = Float(distanceDeviationMeters ?? 0)
+        return (1 - deviation * distanceScalePerMeter).clamped(to: 0.6...1.5)
     }
 
     /// Points the guide outline at the requested orientation, or hides it when
     /// no sweep is running.
-    private func updateGuide(_ guide: SCNNode?) {
+    ///
+    /// The guide takes the head's own position offset and distance scale, so
+    /// **orientation is the only difference between the two shapes**. Pinning
+    /// the guide at centre/unit-scale instead would make the match physically
+    /// unachievable whenever the participant sat slightly off-centre or off the
+    /// baseline distance — and the natural fix (leaning to line them up) fights
+    /// the fixed distance the protocol enforces.
+    private func updateGuide(_ guide: SCNNode?, position: SIMD3<Float>, scale: Float) {
         guard let guide else { return }
         guard let yaw = targetYawDegrees, let pitch = targetPitchDegrees else {
             guide.isHidden = true
@@ -100,7 +118,8 @@ struct VirtualHeadView: UIViewRepresentable {
         // use.
         guide.simdOrientation = VirtualHeadOrientation.quaternion(
             yawDegrees: yaw, pitchDegrees: pitch, rollDegrees: 0)
-        guide.simdScale = SIMD3<Float>(repeating: Self.guideScale)
+        guide.simdPosition = position
+        guide.simdScale = SIMD3<Float>(repeating: scale * Self.guideScale)
         guide.opacity = guideStalled ? 0.55 : 0.32
         guide.enumerateHierarchy { node, _ in
             node.geometry?.firstMaterial?.diffuse.contents =

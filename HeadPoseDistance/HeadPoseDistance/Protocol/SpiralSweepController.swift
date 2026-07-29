@@ -350,17 +350,20 @@ final class SpiralSweepController: ProtocolControlling {
         case .holdingNeutral:
             return "Hold still"
         case .sweeping:
-            // Deliberately says HEAD, not "follow": the participant's eyes
-            // must stay on the dot, and "follow the outline" reads as an
-            // instruction to track it with the gaze — the one mistake that
-            // would invalidate the recording.
+            // Two things this wording has to get right:
+            // - says HEAD, not "follow" — "follow the outline" reads as an
+            //   instruction to track it with the gaze, the one mistake that
+            //   would invalidate the recording;
+            // - says AIM/match, not "fill" — the task is matching a direction,
+            //   and "fill" describes matching a size or position, which is
+            //   what the separate dashed oval already asks for.
             if let start = firstSweepStartTime,
                input.timestamp - start > config.sweepInstructionSeconds {
                 return ""
             }
-            return "Turn your head to fill the outline"
+            return "Aim your head where the teal head aims"
         case .sweepStalled:
-            return "Turn your head to fill the outline"
+            return "Aim your head where the teal head aims"
         case .pausedForTracking:
             return "Face not tracked"
         case .pausedForPhoneMotion:

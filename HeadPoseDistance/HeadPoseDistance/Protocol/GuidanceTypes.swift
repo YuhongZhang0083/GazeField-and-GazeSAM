@@ -106,7 +106,7 @@ enum GuidanceFeedback: Equatable {
         case .wrongDirection: return "Other way — follow the arrow"
         case .tooFast: return "Move more slowly"
         case .offAxis: return "Drifting off-axis — follow the arrow"
-        case .behindGuide: return "Outline is waiting for your head"
+        case .behindGuide: return "Teal head is waiting for yours"
         }
     }
 }

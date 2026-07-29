@@ -307,10 +307,13 @@ final class SpiralSweepControllerTests: XCTestCase {
 
     // MARK: - Instruction wording
 
-    /// The caption must never tell the participant to *follow* the outline —
-    /// that reads as "track it with your eyes", which is the one mistake that
-    /// would invalidate the recording. It has to name the head.
-    func testSweepInstructionNamesTheHeadAndNeverSaysFollow() {
+    /// Two words the caption must avoid:
+    /// - *follow* reads as "track it with your eyes", the one mistake that
+    ///   would invalidate the recording;
+    /// - *fill* describes matching a size or position, which is what the
+    ///   separate dashed oval asks for — the sweep task is matching a
+    ///   direction, and the two were being confused.
+    func testSweepInstructionNamesTheHeadAndAvoidsMisleadingVerbs() {
         let controller = SpiralSweepController(config: config)
         let t = startSweep(controller)
         let output = follow(controller, from: t, duration: 0.2)
@@ -319,7 +322,9 @@ final class SpiralSweepControllerTests: XCTestCase {
         XCTAssertTrue(instruction.contains("head"),
                       "sweep instruction must name the head, got: \(output.instruction)")
         XCTAssertFalse(instruction.contains("follow"),
-                       "'follow the outline' invites gaze tracking, got: \(output.instruction)")
+                       "'follow' invites gaze tracking, got: \(output.instruction)")
+        XCTAssertFalse(instruction.contains("fill"),
+                       "'fill' describes size/position, not direction, got: \(output.instruction)")
     }
 
     /// The caption sits below the fixation dot, so reading it breaks fixation.

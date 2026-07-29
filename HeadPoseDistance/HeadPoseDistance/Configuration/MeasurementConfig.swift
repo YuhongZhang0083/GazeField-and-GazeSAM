@@ -256,8 +256,8 @@ struct MeasurementConfig: Codable, Equatable {
     /// Must be < `sweepFollowToleranceDegrees`.
     var sweepFollowResumeDegrees: Double = 5.0
 
-    /// How long the "turn your head to fill the outline" caption stays up
-    /// after the sweep starts, before the outline is left to speak for itself.
+    /// How long the "aim your head where the teal head aims" caption stays up
+    /// after the sweep starts, before the guide is left to speak for itself.
     ///
     /// The caption sits below the fixation dot, so *reading* it breaks
     /// fixation — a standing instruction next to a fixation target works

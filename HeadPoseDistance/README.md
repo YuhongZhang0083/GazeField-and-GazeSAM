@@ -225,17 +225,29 @@ head moves, so the guide must neither become a second fixation target nor be
 that travelled across the screen would do exactly that — at a 55 cm working
 distance even the existing 136 pt guidance ring sits only ~2.4° off axis.
 
-Instead the guide is a **translucent oversized outline of the virtual head,
+Instead the guide is a **second, translucent teal copy of the virtual head,
 co-located with the fixation dot**. It conveys a 3D orientation from the same
-screen position as the dot, so following it requires no gaze shift: the
-participant rotates until their solid head nests inside the teal outline. The
-outline warms to amber while stalled. No arrow is shown during a sweep.
+screen position as the dot, so matching it requires no gaze shift: the
+participant turns until the solid grey head aims the same way as the teal one.
+The teal head warms to amber while stalled. No arrow is shown during a sweep.
 
-Wording matters as much as placement. The caption says **"Turn your head to
-fill the outline"** and deliberately never says *follow* — "follow the
-outline" reads as an instruction to track it with the eyes, which is the one
-mistake that would silently invalidate a recording. A unit test enforces that
-the sweep caption names the head and contains no "follow".
+The guide takes the head's **own position offset and distance scale**, so
+orientation is the only difference between the two shapes. Pinning it at
+centre/unit-scale (as the first version did) made the match physically
+unachievable whenever the participant sat slightly off-centre or off the
+baseline distance — and the natural fix, leaning to line the shapes up, fights
+the fixed distance the protocol enforces.
+
+Wording matters as much as placement, and two verbs are banned by unit test:
+
+- ***follow*** — "follow the outline" reads as an instruction to track it with
+  the eyes, the one mistake that would silently invalidate a recording.
+- ***fill*** — "fill the outline" describes matching a size or position, which
+  is what the separate dashed oval already asks for. The sweep task is
+  matching a *direction*, and the two were being confused.
+
+The caption says **"Aim your head where the teal head aims"** and the test
+requires it to name the head and contain neither banned verb.
 
 The caption also retires after `sweepInstructionSeconds` (5 s) and returns
 only when the guide stalls. It sits below the fixation dot, so *reading* it

@@ -91,11 +91,13 @@ struct InstructionsView: View {
         switch viewModel.recordingMode {
         case .spiralSweep:
             return [
-                "A teal head-shaped outline appears over the middle of the screen, tilted to a target orientation.",
-                "Turn your head until your head fills the outline — then keep it filled. The outline drifts slowly and continuously, spiralling outward from the centre.",
-                "Your eyes never follow the outline. Keep them on the red dot the whole time; only your head turns.",
-                "If you fall behind, the outline turns amber and waits for you. There is no time limit.",
-                "The bar at the bottom shows how much of the spiral you have covered. It takes about 75 seconds of steady following."
+                "Under the red dot you will see two heads: a solid grey one that turns exactly as your own head turns, and a translucent teal one.",
+                "The teal head is the target. It is the same shape and size as yours — the only difference is the direction it is aiming.",
+                "Turn your head until the grey head aims the same way as the teal head. When they agree, the two line up and their noses point the same way.",
+                "The teal head then drifts slowly to a new direction, spiralling gradually wider. Keep matching it.",
+                "Your eyes never follow the teal head. Keep them on the red dot the whole time; only your head turns.",
+                "If you fall behind, the teal head turns amber and waits for you. There is no time limit.",
+                "The bar at the bottom shows how much of the spiral you have covered. It takes about 75 seconds of steady matching."
             ]
         case .eightSpoke:
             return [
