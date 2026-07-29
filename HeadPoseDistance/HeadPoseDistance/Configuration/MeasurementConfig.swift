@@ -256,6 +256,17 @@ struct MeasurementConfig: Codable, Equatable {
     /// Must be < `sweepFollowToleranceDegrees`.
     var sweepFollowResumeDegrees: Double = 5.0
 
+    /// How long the "turn your head to fill the outline" caption stays up
+    /// after the sweep starts, before the outline is left to speak for itself.
+    ///
+    /// The caption sits below the fixation dot, so *reading* it breaks
+    /// fixation — a standing instruction next to a fixation target works
+    /// against the measurement (the same reason the standing red-dot caption
+    /// was removed). It appears just long enough to orient the participant,
+    /// and returns whenever the guide stalls, which is exactly when they need
+    /// it again.
+    var sweepInstructionSeconds: Double = 5.0
+
     // MARK: - UI
 
     /// Diameter of the fixed central fixation dot, in points (16–20 pt spec).

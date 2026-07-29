@@ -48,6 +48,8 @@ final class SpiralSweepController: ProtocolControlling {
     private var startTimestamp: TimeInterval?
     private var lastUpdateTimestamp: TimeInterval?
     private var neutralHoldStartTime: TimeInterval?
+    /// When the sweep first began — used to retire the opening caption.
+    private var firstSweepStartTime: TimeInterval?
 
     // Distance hysteresis bookkeeping (mirrors GuidedMovementController).
     private var distanceOutsideSince: TimeInterval?
@@ -212,6 +214,7 @@ final class SpiralSweepController: ProtocolControlling {
                 if sweepFinished {
                     transition(to: .complete, at: t, reason: .allStagesComplete)
                 } else {
+                    if firstSweepStartTime == nil { firstSweepStartTime = t }
                     transition(to: .sweeping, at: t, reason: .sweepStarted)
                 }
             }
@@ -343,13 +346,21 @@ final class SpiralSweepController: ProtocolControlling {
     private func instruction(for input: ProtocolGuidanceInput) -> String {
         switch state {
         case .returningToNeutral:
-            return sweepFinished ? "Return to center" : "Center your head to begin"
+            return sweepFinished ? "Return to center" : "Face straight ahead to begin"
         case .holdingNeutral:
-            return "Hold center"
+            return "Hold still"
         case .sweeping:
-            return "Follow the outline — eyes on the dot"
+            // Deliberately says HEAD, not "follow": the participant's eyes
+            // must stay on the dot, and "follow the outline" reads as an
+            // instruction to track it with the gaze — the one mistake that
+            // would invalidate the recording.
+            if let start = firstSweepStartTime,
+               input.timestamp - start > config.sweepInstructionSeconds {
+                return ""
+            }
+            return "Turn your head to fill the outline"
         case .sweepStalled:
-            return "Catch up to the outline"
+            return "Turn your head to fill the outline"
         case .pausedForTracking:
             return "Face not tracked"
         case .pausedForPhoneMotion:

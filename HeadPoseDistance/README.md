@@ -220,7 +220,8 @@ There is **no timeout that auto-completes a sweep**. Stopping early is safe —
 ### Following the guide without moving your eyes
 
 The whole method depends on the eyes staying on the fixed dot while only the
-head moves, so the guide must not become a second fixation target. A marker
+head moves, so the guide must neither become a second fixation target nor be
+*described* as something to follow. A marker
 that travelled across the screen would do exactly that — at a 55 cm working
 distance even the existing 136 pt guidance ring sits only ~2.4° off axis.
 
@@ -229,6 +230,20 @@ co-located with the fixation dot**. It conveys a 3D orientation from the same
 screen position as the dot, so following it requires no gaze shift: the
 participant rotates until their solid head nests inside the teal outline. The
 outline warms to amber while stalled. No arrow is shown during a sweep.
+
+Wording matters as much as placement. The caption says **"Turn your head to
+fill the outline"** and deliberately never says *follow* — "follow the
+outline" reads as an instruction to track it with the eyes, which is the one
+mistake that would silently invalidate a recording. A unit test enforces that
+the sweep caption names the head and contains no "follow".
+
+The caption also retires after `sweepInstructionSeconds` (5 s) and returns
+only when the guide stalls. It sits below the fixation dot, so *reading* it
+breaks fixation — a standing instruction next to a fixation target works
+against the measurement, for the same reason the standing red-dot caption was
+removed earlier. The instructions screen carries the full explanation, and is
+protocol-specific: choosing 8-Spoke or Spiral Sweep there changes the steps
+shown, since the two ask for genuinely different movements.
 
 ### Export
 
@@ -477,7 +492,8 @@ New in the spiral-sweep update:
   motionless head accumulates almost no coverage and never completes), stall
   hysteresis, progress/target/error reporting, tracking, phone-motion and
   distance pauses, `sweep` labelling of paused mid-sweep samples, large
-  timestamp gaps not credited as progress, and full traversal → return →
-  complete.
+  timestamp gaps not credited as progress, full traversal → return →
+  complete, and the caption rules (names the head, never says "follow",
+  retires after its window, returns on stall).
 
-Current status: **156 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).
+Current status: **159 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).

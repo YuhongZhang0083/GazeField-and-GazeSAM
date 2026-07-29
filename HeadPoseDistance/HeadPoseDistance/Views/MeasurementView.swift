@@ -551,7 +551,8 @@ struct SweepProgressBar: View {
                 }
             }
             .frame(height: 5)
-            Text(stalled ? "Guide waiting — match the outline" : "Spiral coverage")
+            Text(stalled ? "Outline waiting — turn your head to fill it"
+                         : "Spiral coverage · eyes on the dot")
                 .font(.caption2)
                 .foregroundStyle(stalled ? Color.orange : .secondary)
         }

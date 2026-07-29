@@ -13,6 +13,9 @@ final class SpiralSweepControllerTests: XCTestCase {
         var c = MeasurementConfig.default
         // Short sweep keeps the tests fast; the path shape is unchanged.
         c.sweepDurationSeconds = 4.0
+        // Must stay well under the sweep duration so the caption window can be
+        // driven past without finishing the whole path.
+        c.sweepInstructionSeconds = 1.0
         return c
     }()
 
@@ -300,6 +303,54 @@ final class SpiralSweepControllerTests: XCTestCase {
                                     lateralInBounds: true,
                                     phoneStability: .stable))
         XCTAssertEqual(controller.progress, before, accuracy: 1e-9)
+    }
+
+    // MARK: - Instruction wording
+
+    /// The caption must never tell the participant to *follow* the outline —
+    /// that reads as "track it with your eyes", which is the one mistake that
+    /// would invalidate the recording. It has to name the head.
+    func testSweepInstructionNamesTheHeadAndNeverSaysFollow() {
+        let controller = SpiralSweepController(config: config)
+        let t = startSweep(controller)
+        let output = follow(controller, from: t, duration: 0.2)
+
+        let instruction = output.instruction.lowercased()
+        XCTAssertTrue(instruction.contains("head"),
+                      "sweep instruction must name the head, got: \(output.instruction)")
+        XCTAssertFalse(instruction.contains("follow"),
+                       "'follow the outline' invites gaze tracking, got: \(output.instruction)")
+    }
+
+    /// The caption sits below the fixation dot, so reading it breaks fixation.
+    /// It must retire once the participant is oriented.
+    func testOpeningCaptionRetiresAfterItsWindow() {
+        let controller = SpiralSweepController(config: config)
+        let t = startSweep(controller)
+
+        let early = follow(controller, from: t, duration: 0.2)
+        XCTAssertFalse(early.instruction.isEmpty, "caption should be up at the start")
+
+        let late = follow(controller, from: t + 0.2 + step,
+                          duration: config.sweepInstructionSeconds + 0.5)
+        XCTAssertEqual(controller.state, .sweeping, "must still be mid-sweep")
+        XCTAssertTrue(late.instruction.isEmpty,
+                      "caption should retire, got: \(late.instruction)")
+    }
+
+    /// …but it must come back when the guide stalls, which is exactly when the
+    /// participant needs telling what to do.
+    func testCaptionReturnsWhenStalled() {
+        let controller = SpiralSweepController(config: config)
+        let t = startSweep(controller)
+        let followed = config.sweepInstructionSeconds + 0.5
+        follow(controller, from: t, duration: followed)
+
+        let stalled = feed(controller, from: t + followed + step,
+                           duration: 0.5, yaw: 0, pitch: 0)
+        XCTAssertEqual(controller.state, .sweepStalled)
+        XCTAssertFalse(stalled.instruction.isEmpty,
+                       "a stalled participant needs the caption back")
     }
 
     // MARK: - Transition log
