@@ -82,16 +82,13 @@ struct MeasurementSample: Codable, Identifiable {
     /// Stable machine-readable reason strings (see RejectionReason).
     var rejectionReasons: [String]
 
-    // MARK: Spiral sweep (spiral-sweep mode only; nil in eight-spoke mode)
+    // MARK: Coverage (free-exploration mode only; nil in eight-spoke mode)
 
-    /// 0…1 along the spiral path at this sample.
-    var sweepProgress: Double?
-    /// Where the guide was, in neutral-relative degrees. Together with the
-    /// measured `relativeYaw/PitchDegrees` this gives the offline pipeline the
-    /// intended path as well as the achieved one.
-    var sweepTargetYawDegrees: Double?
-    var sweepTargetPitchDegrees: Double?
-    /// Angular distance from head to guide (degrees) — usable as a per-sample
-    /// quality weight when fitting the gaze field.
-    var sweepTrackingErrorDegrees: Double?
+    /// Fraction of the required field covered at the time of this sample.
+    var coverageFraction: Double?
+    /// Which coverage cell this sample landed in, nil when the pose was outside
+    /// the field. Lets the offline pipeline verify coverage independently
+    /// instead of trusting the app's own count.
+    var coverageCellColumn: Int?
+    var coverageCellRow: Int?
 }

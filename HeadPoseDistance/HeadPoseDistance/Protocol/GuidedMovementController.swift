@@ -332,7 +332,7 @@ final class GuidedMovementController: ProtocolControlling {
             completedDirections: completedDirections,
             isComplete: state == .complete,
             isPaused: isPausedState(state),
-            sweep: nil)
+            coverage: nil)
     }
 
     /// Phase label written onto recorded samples. Preserves the existing
@@ -356,9 +356,9 @@ final class GuidedMovementController: ProtocolControlling {
             }
         case .complete:
             return .complete
-        // Sweep states belong to SpiralSweepController and are unreachable
-        // here; the eight-spoke protocol never enters them.
-        case .sweeping, .sweepStalled:
+        // The exploring state belongs to FreeExplorationController and is
+        // unreachable here; the eight-spoke protocol never enters it.
+        case .exploring:
             return .center
         }
     }
@@ -388,7 +388,7 @@ final class GuidedMovementController: ProtocolControlling {
             return "Recenter your face"
         case .complete:
             return "Done"
-        case .sweeping, .sweepStalled:
+        case .exploring:
             return ""
         }
     }
@@ -429,7 +429,7 @@ extension ProtocolPhase {
         case .lowerLeft: return "turn your head lower-left"
         case .lowerRight: return "turn your head lower-right"
         case .center: return "return to center"
-        case .sweep: return "follow the outline"
+        case .explore: return "move freely"
         case .idle, .neutralCapture, .complete: return ""
         }
     }

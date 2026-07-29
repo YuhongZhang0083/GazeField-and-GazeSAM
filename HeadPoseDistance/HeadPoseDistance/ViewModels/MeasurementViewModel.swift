@@ -28,10 +28,10 @@ final class MeasurementViewModel: ObservableObject {
     @Published private(set) var screenOffsetCalibrated = false
     @Published var showDebugView = false
     @Published var showCalibrationSheet = false
-    /// Protocol used for the next recording. Defaults to the spiral sweep —
-    /// the uniform-density protocol the gaze-field fit needs; the eight-spoke
+    /// Protocol used for the next recording. Defaults to free exploration —
+    /// the coverage-driven protocol the gaze-field fit needs; the eight-spoke
     /// protocol remains selectable as a comparison / validation set.
-    @Published var recordingMode: RecordingMode = .spiralSweep
+    @Published var recordingMode: RecordingMode = .freeExploration
     @Published private(set) var exportedFiles: [ExportedFile] = []
     @Published var exportErrorMessage: String?
 
@@ -64,6 +64,9 @@ final class MeasurementViewModel: ObservableObject {
     private var lastCompletedCount = 0
     /// Phase currently in the on-target zone (entry haptic already fired).
     private var lastHapticPhase: ProtocolPhase?
+    /// Coverage-cell count at the last haptic tick, so a tick fires once per
+    /// newly completed cell even though snapshots arrive at ~15 Hz.
+    private var lastCoveredCellCount = 0
 
     init() {
         manager = ARFaceTrackingManager(callbackQueue: sessionQueue)
@@ -239,8 +242,21 @@ final class MeasurementViewModel: ObservableObject {
             if snap.stage == .preview || snap.stage == .finished {
                 lastCompletedCount = 0
                 lastHapticPhase = nil
+                lastCoveredCellCount = 0
             }
             return
+        }
+
+        // Free exploration: one tick per newly covered cell. This is the only
+        // feedback that does not require looking away from the fixation dot,
+        // so it carries the progress signal the coverage grid shows visually.
+        if let coverage = snap.guidance?.coverage {
+            if coverage.coveredCells > lastCoveredCellCount {
+                lastCoveredCellCount = coverage.coveredCells
+                haptics.impactOccurred()
+            } else if coverage.coveredCells < lastCoveredCellCount {
+                lastCoveredCellCount = coverage.coveredCells
+            }
         }
 
         if let guidance = snap.guidance {

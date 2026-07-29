@@ -15,16 +15,16 @@ enum RecordingMode: String, Codable, CaseIterable, Identifiable {
     /// Eight discrete directions, each reached from neutral and held.
     /// Sparse in the interior — kept as a validation / comparison protocol.
     case eightSpoke = "eight_spoke"
-    /// Continuous Archimedean spiral traversed at constant tangential speed,
-    /// which samples the (yaw, pitch) plane at uniform areal density.
-    case spiralSweep = "spiral_sweep"
+    /// Free head movement with no target to match; the session ends when a
+    /// coverage grid over the (yaw, pitch) field has been filled.
+    case freeExploration = "free_exploration"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .eightSpoke: return "8-Spoke"
-        case .spiralSweep: return "Spiral Sweep"
+        case .freeExploration: return "Free Explore"
         }
     }
 
@@ -32,8 +32,8 @@ enum RecordingMode: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .eightSpoke:
             return "Eight held directions — validation set"
-        case .spiralSweep:
-            return "Continuous uniform-density sweep — gaze-field set"
+        case .freeExploration:
+            return "Move freely until the coverage grid fills — gaze-field set"
         }
     }
 }
@@ -53,11 +53,8 @@ enum GuidanceStateKind: String, Codable, Equatable {
     case pausedForDistance = "paused_for_distance"
     case pausedForPhoneMotion = "paused_for_phone_motion"
     case complete
-    // Spiral-sweep states.
-    case sweeping
-    /// The head fell behind the guide; the guide waits rather than running
-    /// away, so recorded poses always cover the intended path.
-    case sweepStalled = "sweep_stalled"
+    /// Free head movement, accruing coverage.
+    case exploring
 }
 
 /// Why a state transition happened. Every transition is recorded.
@@ -78,11 +75,9 @@ enum GuidanceTransitionReason: String, Codable {
     case distanceRecovered = "distance_recovered"
     case phoneMotionExcessive = "phone_motion_excessive"
     case phoneMotionEnded = "phone_motion_ended"
-    // Spiral-sweep reasons.
-    case sweepStarted = "sweep_started"
-    case sweepStalled = "sweep_stalled"
-    case sweepResumed = "sweep_resumed"
-    case sweepCompleted = "sweep_completed"
+    // Free-exploration reasons.
+    case explorationStarted = "exploration_started"
+    case coverageComplete = "coverage_complete"
 }
 
 /// One recorded transition, exported with the session.
@@ -99,14 +94,12 @@ enum GuidanceFeedback: Equatable {
     case wrongDirection
     case tooFast
     case offAxis
-    case behindGuide
 
     var message: String {
         switch self {
         case .wrongDirection: return "Other way — follow the arrow"
         case .tooFast: return "Move more slowly"
         case .offAxis: return "Drifting off-axis — follow the arrow"
-        case .behindGuide: return "Teal head is waiting for yours"
         }
     }
 }
@@ -128,17 +121,26 @@ struct ProtocolGuidanceInput {
     var phoneStability: PhoneStability
 }
 
-/// Live state of a spiral sweep, for the UI and the recorded samples.
-struct SweepGuidanceState: Equatable {
-    /// 0…1 along the spiral path (advances only while the head is following).
-    var progress: Double
-    /// Where the guide currently is, in neutral-relative degrees.
-    var targetYawDegrees: Double
-    var targetPitchDegrees: Double
-    /// Angular distance from the head to the guide, nil when untracked.
-    var trackingErrorDegrees: Double?
-    /// True while the guide is waiting for the head to catch up.
-    var isStalled: Bool
+/// Live coverage state of a free-exploration session, for the grid view and
+/// the recorded samples.
+struct ExplorationGuidanceState: Equatable {
+    var columns: Int
+    var rows: Int
+    /// Row-major 0…1 fill per cell, top row first.
+    var cellFill: [Double]
+    /// Row-major flags: false for cells outside the elliptical field, which are
+    /// drawn faintly and are not required.
+    var cellRequired: [Bool]
+    var coveredCells: Int
+    var requiredCells: Int
+    var coveredFraction: Double
+    /// Cell the head is in right now, nil outside the field or before the
+    /// exploration phase.
+    var currentColumn: Int?
+    var currentRow: Int?
+    /// True on the single frame a required cell filled up — drives one haptic
+    /// tick, so progress is felt without looking away from the dot.
+    var completedCellThisFrame: Bool
 }
 
 /// Everything the UI and the sample labeler need for the current frame.
@@ -160,8 +162,8 @@ struct ProtocolGuidanceOutput: Equatable {
     var completedDirections: Set<ProtocolPhase>
     var isComplete: Bool
     var isPaused: Bool
-    /// Present only in spiral-sweep mode.
-    var sweep: SweepGuidanceState?
+    /// Present only in free-exploration mode.
+    var coverage: ExplorationGuidanceState?
 }
 
 /// A recording protocol the pipeline can drive. Both implementations are pure

@@ -34,7 +34,7 @@ final class MeasurementPipeline {
     /// conform to `ProtocolControlling`, so everything downstream of here is
     /// mode-agnostic.
     private var guidance: ProtocolControlling?
-    private var recordingMode: RecordingMode = .spiralSweep
+    private var recordingMode: RecordingMode = .freeExploration
     private var lastGuidanceOutput: ProtocolGuidanceOutput?
     private var recordingStartFrameTime: TimeInterval?
     private var pausedAccumulated: TimeInterval = 0
@@ -131,8 +131,8 @@ final class MeasurementPipeline {
         switch mode {
         case .eightSpoke:
             guidance = GuidedMovementController(config: config)
-        case .spiralSweep:
-            guidance = SpiralSweepController(config: config)
+        case .freeExploration:
+            guidance = FreeExplorationController(config: config)
         }
         lastGuidanceOutput = nil
         recordingStartFrameTime = nil   // set on the first recorded frame
@@ -547,10 +547,9 @@ final class MeasurementPipeline {
             sampleValid: validation.isValid,
             confidence: validation.confidence,
             rejectionReasons: validation.reasons.map { $0.rawValue },
-            sweepProgress: output.sweep?.progress,
-            sweepTargetYawDegrees: output.sweep?.targetYawDegrees,
-            sweepTargetPitchDegrees: output.sweep?.targetPitchDegrees,
-            sweepTrackingErrorDegrees: output.sweep?.trackingErrorDegrees)
+            coverageFraction: output.coverage?.coveredFraction,
+            coverageCellColumn: output.coverage?.currentColumn,
+            coverageCellRow: output.coverage?.currentRow)
         recorder.add(sample)
 
         // Completion comes from the state machine (all stages genuinely

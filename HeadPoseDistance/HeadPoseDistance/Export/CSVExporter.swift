@@ -43,12 +43,11 @@ enum CSVExporter {
         "sample_valid",
         "confidence",
         "rejection_reasons",
-        // Spiral-sweep columns, appended so existing parsers that index the
+        // Coverage columns, appended so existing parsers that index the
         // original 36 columns keep working. Empty in eight-spoke mode.
-        "sweep_progress",
-        "sweep_target_yaw_deg",
-        "sweep_target_pitch_deg",
-        "sweep_tracking_error_deg"
+        "coverage_fraction",
+        "coverage_cell_column",
+        "coverage_cell_row"
     ]
 
     /// Locale-independent numeric formatting ("." decimal separator).
@@ -104,10 +103,9 @@ enum CSVExporter {
             format(s.sampleValid),
             format(s.confidence),
             s.rejectionReasons.joined(separator: ";"),
-            format(s.sweepProgress),
-            format(s.sweepTargetYawDegrees),
-            format(s.sweepTargetPitchDegrees),
-            format(s.sweepTrackingErrorDegrees)
+            format(s.coverageFraction),
+            format(s.coverageCellColumn),
+            format(s.coverageCellRow)
         ]
     }
 

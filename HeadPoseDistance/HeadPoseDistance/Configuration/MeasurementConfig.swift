@@ -218,54 +218,43 @@ struct MeasurementConfig: Codable, Equatable {
     /// during a center phase.
     var centerToleranceDegrees: Double = 5.0
 
-    // MARK: - Spiral sweep
+    // MARK: - Free exploration / coverage
 
-    /// Half-range of the spiral along yaw (degrees). Bounded by how far the
-    /// head can rotate while the eyes still hold the fixation dot — beyond
-    /// roughly ±25° the eye hits its mechanical limit and fixation breaks.
-    var sweepYawAmplitudeDegrees: Double = 22.0
-
-    /// Half-range along pitch (degrees). Deliberately smaller than yaw:
+    /// Extent of the (yaw, pitch) field the participant must cover, as a
+    /// half-range in degrees. Bounded by how far the head can rotate while the
+    /// eyes still hold the fixation dot — beyond roughly ±25° the eye reaches
+    /// its mechanical limit and fixation breaks. Pitch is deliberately smaller:
     /// comfortable eye-in-head range is narrower vertically, so a symmetric
-    /// amplitude would lose fixation at the top and bottom of the field.
-    var sweepPitchAmplitudeDegrees: Double = 16.0
+    /// field would lose fixation at the top and bottom.
+    var coverageYawAmplitudeDegrees: Double = 22.0
+    var coveragePitchAmplitudeDegrees: Double = 16.0
 
-    /// Number of spiral turns. Sets ring spacing — at 22° amplitude, 5 turns
-    /// gives ~3.9° between rings, close to the heatmap's 3° `--sigma-min` so
-    /// smoothing interpolates between measured rings rather than across gaps.
-    var sweepTurns: Double = 5.0
+    /// Grid resolution. 7 × 5 over an elliptical field gives 31 required
+    /// cells — coarse enough to fill in a reasonable session, fine enough that
+    /// cell centres sit ~6° apart in yaw, so the heatmap kernel
+    /// (`--sigma-min 3`) interpolates between measured cells.
+    var coverageColumns: Int = 7
+    var coverageRows: Int = 5
 
-    /// Where the spiral starts, as a fraction of full amplitude. Skips the
-    /// degenerate tight loop at the exact centre (which would require an
-    /// impossibly fast direction change); neutral is already well covered by
-    /// the settle and return phases.
-    var sweepInnerRadiusFraction: Double = 0.12
+    /// Usable samples a cell needs before it counts as covered. At 60 Hz this
+    /// is a ~0.2 s dwell requirement, which stops a fast swing through a cell
+    /// from claiming it on one or two frames.
+    var coverageSamplesPerCell: Int = 12
 
-    /// Duration of a full traversal, counted in seconds of *following* — time
-    /// while the guide is stalled or paused does not count. With the defaults
-    /// this puts the guide at ~5°/s, far below
-    /// `guidedMaxAngularVelocityDegPerSec`, and yields ~4500 samples at 60 Hz
-    /// (~1500 Aria eye frames at 20 Hz).
-    var sweepDurationSeconds: Double = 75.0
+    /// Fraction of required cells that must be covered to finish. Not 1.0: the
+    /// most extreme cells are unreachable for some people, and demanding all of
+    /// them would stall the session indefinitely. Stopping early is always safe
+    /// because per-sample coverage is exported.
+    var coverageCompletionFraction: Double = 0.92
 
-    /// How far the head may lag the guide before the guide stops and waits.
-    var sweepFollowToleranceDegrees: Double = 7.0
-
-    /// Tighter error required to resume after a stall (hysteresis, so a head
-    /// hovering at the boundary doesn't chatter between the two states).
-    /// Must be < `sweepFollowToleranceDegrees`.
-    var sweepFollowResumeDegrees: Double = 5.0
-
-    /// How long the "aim your head where the teal head aims" caption stays up
-    /// after the sweep starts, before the guide is left to speak for itself.
+    /// How long the opening caption stays up after exploration starts, before
+    /// the coverage grid is left to carry the state.
     ///
     /// The caption sits below the fixation dot, so *reading* it breaks
     /// fixation — a standing instruction next to a fixation target works
     /// against the measurement (the same reason the standing red-dot caption
-    /// was removed). It appears just long enough to orient the participant,
-    /// and returns whenever the guide stalls, which is exactly when they need
-    /// it again.
-    var sweepInstructionSeconds: Double = 5.0
+    /// was removed).
+    var explorationInstructionSeconds: Double = 6.0
 
     // MARK: - UI
 

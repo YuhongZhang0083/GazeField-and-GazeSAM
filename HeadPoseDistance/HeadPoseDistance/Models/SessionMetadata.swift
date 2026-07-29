@@ -20,7 +20,7 @@ struct SessionMetadata: Codable {
 
     /// Which recording protocol produced this session, so a CSV is always
     /// self-describing when the two modes are compared.
-    var recordingMode: String = RecordingMode.spiralSweep.rawValue
+    var recordingMode: String = RecordingMode.freeExploration.rawValue
 
     var startedAt: Date = Date()
     var durationSeconds: Double = 0

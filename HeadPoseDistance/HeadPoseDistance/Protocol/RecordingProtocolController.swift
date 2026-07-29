@@ -15,11 +15,11 @@ enum ProtocolPhase: String, Codable, CaseIterable {
     case upperRight = "upper_right"
     case lowerLeft = "lower_left"
     case lowerRight = "lower_right"
-    /// Continuous spiral sweep (spiral-sweep mode only). Direction changes
-    /// every frame, so unlike the eight discrete phases this one label covers
-    /// the whole traversal; the exact guide position is recorded per sample in
-    /// `sweep_target_yaw_deg` / `sweep_target_pitch_deg`.
-    case sweep
+    /// Free head movement (free-exploration mode only). There is no per-frame
+    /// direction to name, so this one label covers the whole phase; which part
+    /// of the field each sample landed in is recorded per sample in
+    /// `coverage_cell_column` / `coverage_cell_row`.
+    case explore
     case complete
 
     /// Instruction text shown during recording. Deliberately phrased as a
@@ -37,7 +37,7 @@ enum ProtocolPhase: String, Codable, CaseIterable {
         case .upperRight: return "Rotate your head UPPER-RIGHT"
         case .lowerLeft: return "Rotate your head LOWER-LEFT"
         case .lowerRight: return "Rotate your head LOWER-RIGHT"
-        case .sweep: return "Follow the outline with your head"
+        case .explore: return "Move your head freely around the dot"
         case .complete: return "Done — recording complete"
         }
     }
@@ -56,9 +56,9 @@ enum ProtocolPhase: String, Codable, CaseIterable {
         case .lowerLeft: return "arrow.down.left"
         case .lowerRight: return "arrow.down.right"
         case .complete: return "checkmark.circle"
-        // The sweep guide is the ghost head outline, not an arrow — a moving
-        // arrow near the dot would pull gaze off the fixation target.
-        case .sweep: return nil
+        // Free exploration has no direction to point at; the coverage grid at
+        // the bottom of the screen carries the state instead.
+        case .explore: return nil
         case .idle, .neutralCapture: return nil
         }
     }

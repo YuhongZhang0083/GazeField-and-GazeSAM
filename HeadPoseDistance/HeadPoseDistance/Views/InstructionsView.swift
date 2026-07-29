@@ -89,15 +89,14 @@ struct InstructionsView: View {
 
     private var protocolSteps: [String] {
         switch viewModel.recordingMode {
-        case .spiralSweep:
+        case .freeExploration:
             return [
-                "Under the red dot you will see two heads: a solid grey one that turns exactly as your own head turns, and a translucent teal one.",
-                "The teal head is the target. It is the same shape and size as yours — the only difference is the direction it is aiming.",
-                "Turn your head until the grey head aims the same way as the teal head. When they agree, the two line up and their noses point the same way.",
-                "The teal head then drifts slowly to a new direction, spiralling gradually wider. Keep matching it.",
-                "Your eyes never follow the teal head. Keep them on the red dot the whole time; only your head turns.",
-                "If you fall behind, the teal head turns amber and waits for you. There is no time limit.",
-                "The bar at the bottom shows how much of the spiral you have covered. It takes about 75 seconds of steady matching."
+                "Look at the red dot and keep looking at it. Your eyes never leave it — only your head moves.",
+                "Slowly circle your nose around the dot, as if drawing rings on the wall behind the phone. Make each circle a little wider than the last.",
+                "A grid at the bottom of the screen shows the field of head directions. Squares fill in green as you visit them, and you feel a small tap each time one completes.",
+                "Keep moving until the grid is full. There is nothing to aim at or match — just cover every square.",
+                "Go slowly. Fast movements are not counted, so rushing makes the grid fill more slowly, not faster.",
+                "There is no time limit and no fixed sequence. Any order is fine."
             ]
         case .eightSpoke:
             return [

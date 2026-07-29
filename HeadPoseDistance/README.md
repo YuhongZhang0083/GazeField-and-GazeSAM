@@ -47,8 +47,8 @@ HeadPoseDistance/
 │   ├── Validation/SampleValidator.swift
 │   ├── Protocol/   (GuidanceTypes ← shared state/transition/IO + RecordingMode,
 │   │                GuidedMovementController ← 8-spoke state machine,
-│   │                SpiralSweepPath ← uniform-density spiral geometry,
-│   │                SpiralSweepController ← sweep state machine,
+│   │                CoverageGrid ← (yaw, pitch) field coverage tracking,
+│   │                FreeExplorationController ← coverage-driven state machine,
 │   │                HeadDirectionTarget, FaceAlignmentEvaluator,
 │   │                RecordingProtocolController ← phase vocabulary)
 │   ├── Visualization/ (VirtualHeadView ← generic 3D head, VirtualHeadOrientation)
@@ -133,9 +133,9 @@ xcodebuild -project HeadPoseDistance.xcodeproj -scheme HeadPoseDistance \
 5. **Head-Movement Recording** — pick a protocol with the segmented control,
    then *Start … Recording*. Both are **pose-driven**: progress is earned by
    the measured pose, never by a timer.
-   - **Spiral Sweep** (default) — one continuous Archimedean spiral that
-     samples the (yaw, pitch) plane at *uniform areal density*. This is the
-     protocol the gaze-field fit needs; see "Spiral sweep protocol" below.
+   - **Free Explore** (default) — move the head freely until a coverage grid
+     over the (yaw, pitch) field is filled. This is the protocol the gaze-field
+     fit needs; see "Free-exploration protocol" below.
    - **8-Spoke** — the original sequence
      (center → up → center → down → … → lower-right → complete). Sparse in
      the interior, so it is kept as a **validation / comparison** set rather
@@ -152,7 +152,7 @@ xcodebuild -project HeadPoseDistance.xcodeproj -scheme HeadPoseDistance \
    internals, ROI, Core Motion values, validity decision, and an optional
    front-camera preview (never saved).
 
-## Spiral sweep protocol (default)
+## Free-exploration protocol (default)
 
 ### Why the eight spokes were not enough
 
@@ -170,107 +170,89 @@ render as a smooth, confident field where nothing was measured. The
 other half of the same problem.
 
 It also hurts the fit, not just the picture: the polynomial and manifold gaze
-models have `yaw·pitch` cross terms, but on the four axis spokes one of the
-two is ~0, and on the four diagonals `|yaw| = |pitch|`. The entire interaction
+models have `yaw·pitch` cross terms, but on the four axis spokes one of the two
+is ~0, and on the four diagonals `|yaw| = |pitch|`. The entire interaction
 structure ends up estimated from four collinear directions.
 
-### The path
+### Measure coverage, don't prescribe a path
 
-`SpiralSweepPath` traces an Archimedean spiral in neutral-relative
-(yaw, pitch) degrees. Two choices carry the whole design:
+The first attempt at a fix was a guided spiral: an Archimedean path traversed
+at constant tangential speed, which gives uniform areal density *if followed
+accurately*. It was removed. Asking someone to match the orientation of a
+translucent 3D head — in peripheral vision, while holding fixation — turned out
+to be an interface people could not read, and no amount of rewording fixed it.
 
-1. **Archimedean (r ∝ θ), not logarithmic** — successive turns are evenly
-   spaced in radius, so ring spacing is uniform at
-   `(1 − innerRadiusFraction) / turns` of full amplitude (~3.9° with the
-   defaults, just under the heatmap's 3° `--sigma-min`, so the kernel
-   interpolates between measured rings instead of across gaps).
-2. **Constant tangential speed, not constant angular rate.** A constant
-   angular rate would dwell near the centre and reproduce exactly the
-   pile-up being removed. The parameterization
+Measuring coverage directly is both easier to perform and a **stronger
+guarantee**. A path gives uniform density only when tracked well; the grid
+requires every cell in the field to hold at least `coverageSamplesPerCell`
+usable samples before the session can finish. There is nothing to match, aim
+at, or interpret: the participant moves, and the grid says what is missing.
 
-       ρ(u) = √(ρ₀² + (1 − ρ₀²)·u)
+### The task
 
-   makes ρ² — and therefore enclosed area — grow linearly with progress `u`.
-   Samples arrive at a fixed 60 Hz, so equal time means equal area means
-   **uniform areal sample density**. This is measured, not assumed:
-   `testUniformArealSampleDensity` bins the path into 12 equal-area annuli and
-   requires every bin to be within 2% of the mean.
+> Keep your eyes on the red dot. Slowly circle your nose around it, making each
+> circle a little wider. Keep going until the grid is full.
 
-Yaw and pitch amplitudes differ (22° / 16°) because comfortable eye-in-head
-range is narrower vertically. The elliptical stretch is a linear map, so it
-preserves uniform density — but it does make *degree-space* speed vary by up
-to the amplitude ratio, which is why `speedUniformityRatio` (degree space) and
-`normalizedSpeedUniformityRatio` (the actual design property) are separate.
+That is the whole protocol. No target, no pacing, no fixed order.
 
-Defaults: 22°/16° amplitude, 5 turns, 75 s of following → guide at ~5°/s,
-~4500 samples at 60 Hz, ~1500 Aria eye frames at 20 Hz.
+### The grid
 
-### The guide never runs away
+`CoverageGrid` bins neutral-relative (yaw, pitch) into a 7 × 5 grid over an
+elliptical field — 22° yaw × 16° pitch. The field is elliptical because
+comfortable eye-in-head range is narrower vertically, so a symmetric field
+would lose fixation at the top and bottom; the four corner cells fall outside
+the ellipse, leaving **31 required cells** with centres ~6° apart in yaw, fine
+enough for the heatmap kernel to interpolate between them.
 
-Progress advances **only** while the head is within
-`sweepFollowToleranceDegrees` (7°) of the guide; otherwise the state machine
-enters `sweepStalled` and the guide waits, resuming at a tighter 5° for
-hysteresis. So elapsed time is never credited as coverage and `sweep_progress`
-always means "this much of the path was really traversed".
+- A cell needs `coverageSamplesPerCell` (12, ≈0.2 s at 60 Hz) samples before it
+  counts. That dwell requirement stops a fast swing through a cell from
+  claiming it on one or two frames.
+- Samples only count while the protocol is unpaused (face tracked, phone still,
+  distance and lateral position inside their bands) **and** head speed is below
+  `guidedMaxAngularVelocityDegPerSec`. Rushing therefore makes the grid fill
+  more slowly, not faster.
+- Poses slightly past full amplitude are clamped into the edge cell; poses far
+  outside are ignored, so the coverage claim stays honest.
+- Cells outside the ellipse are never required but are still counted — extra
+  data is never discarded.
+- The session ends at `coverageCompletionFraction` (0.92), not 1.0: the most
+  extreme cells are unreachable for some people and demanding all of them would
+  stall indefinitely. Stopping early is safe — coverage is exported per sample.
 
-The corollary is deliberate: a participant who stops following never finishes.
-There is **no timeout that auto-completes a sweep**. Stopping early is safe —
-`sweep_progress` is recorded per sample, so a partial sweep is still usable.
+`CoverageGridTests` pins the behaviour that matters, including two negative
+tests that encode the original problem: centre-only movement leaves coverage
+below 5%, and a dense eight-spoke pattern cannot reach the completion
+threshold, because the wedges stay empty.
 
-### Following the guide without moving your eyes
+### Reading the grid without breaking fixation
 
-The whole method depends on the eyes staying on the fixed dot while only the
-head moves, so the guide must neither become a second fixation target nor be
-*described* as something to follow. A marker
-that travelled across the screen would do exactly that — at a 55 cm working
-distance even the existing 136 pt guidance ring sits only ~2.4° off axis.
+The grid sits at the bottom of the screen, far from the dot, and squares fill
+green as they are visited with a thin white outline marking where the head is
+now — so it reads as a map, not an abstract meter.
 
-Instead the guide is a **second, translucent teal copy of the virtual head,
-co-located with the fixation dot**. It conveys a 3D orientation from the same
-screen position as the dot, so matching it requires no gaze shift: the
-participant turns until the solid grey head aims the same way as the teal one.
-The teal head warms to amber while stalled. No arrow is shown during a sweep.
-
-The guide takes the head's **own position offset and distance scale**, so
-orientation is the only difference between the two shapes. Pinning it at
-centre/unit-scale (as the first version did) made the match physically
-unachievable whenever the participant sat slightly off-centre or off the
-baseline distance — and the natural fix, leaning to line the shapes up, fights
-the fixed distance the protocol enforces.
-
-Wording matters as much as placement, and two verbs are banned by unit test:
-
-- ***follow*** — "follow the outline" reads as an instruction to track it with
-  the eyes, the one mistake that would silently invalidate a recording.
-- ***fill*** — "fill the outline" describes matching a size or position, which
-  is what the separate dashed oval already asks for. The sweep task is
-  matching a *direction*, and the two were being confused.
-
-The caption says **"Aim your head where the teal head aims"** and the test
-requires it to name the head and contain neither banned verb.
-
-The caption also retires after `sweepInstructionSeconds` (5 s) and returns
-only when the guide stalls. It sits below the fixation dot, so *reading* it
-breaks fixation — a standing instruction next to a fixation target works
-against the measurement, for the same reason the standing red-dot caption was
-removed earlier. The instructions screen carries the full explanation, and is
-protocol-specific: choosing 8-Spoke or Spiral Sweep there changes the steps
-shown, since the two ask for genuinely different movements.
+Glancing at it does break fixation, which matters because every sample's value
+depends on the eyes being on the dot. Two mitigations: a **haptic tick fires
+each time a square completes**, so progress can be felt without looking at all;
+and the caption retires after `explorationInstructionSeconds` rather than
+standing next to the fixation target. Residual contamination is episodic rather
+than systematic, and once Aria eye frames are aligned a glance to the bottom of
+the screen is a large, obvious pupil excursion that can be dropped offline.
 
 ### Export
 
-Spiral sessions add four columns, appended after the original 36 so existing
-parsers keep working (empty in eight-spoke mode):
+Free-exploration sessions add three columns, appended after the original 36 so
+existing parsers keep working (empty in eight-spoke mode):
 
 | Column | Meaning |
 |---|---|
-| `sweep_progress` | 0…1 along the path at this sample |
-| `sweep_target_yaw_deg` | where the guide was |
-| `sweep_target_pitch_deg` | where the guide was |
-| `sweep_tracking_error_deg` | head-to-guide distance — usable as a per-sample quality weight |
+| `coverage_fraction` | fraction of the required field covered at this sample |
+| `coverage_cell_column` | which cell the pose fell in (empty if outside the field) |
+| `coverage_cell_row` | " |
 
-`SessionMetadata.recordingMode` (`spiral_sweep` / `eight_spoke`) makes every
-export self-describing when the two protocols are compared.
+The per-sample cell lets the offline pipeline **recompute coverage
+independently** instead of trusting the app's own count.
+`SessionMetadata.recordingMode` (`free_exploration` / `eight_spoke`) makes every
+export self-describing.
 
 ## Guided protocol: pose-driven state machine
 
@@ -491,21 +473,21 @@ phase labeling), `VirtualHeadOrientationTests` (mirror-convention mapping),
 and `FaceAlignmentTests` (distance band, lateral cues, cue priority,
 stage-transition JSON round-trip).
 
-New in the spiral-sweep update:
+New in the free-exploration update:
 
-- `SpiralSweepPathTests` — **uniform areal sample density** (12 equal-area
-  annuli, every bin within 2% of the mean: the measured form of the claim that
-  justifies the whole protocol), constant normalized tangential speed,
-  degree-space speed bounded by the amplitude ratio, amplitude bounds,
-  endpoints, continuity, ring spacing versus the heatmap kernel, speed budget
-  under the too-fast threshold, eye-frame yield, and clamping of degenerate
-  configurations.
-- `SpiralSweepControllerTests` — the guide waits instead of running away (a
-  motionless head accumulates almost no coverage and never completes), stall
-  hysteresis, progress/target/error reporting, tracking, phone-motion and
-  distance pauses, `sweep` labelling of paused mid-sweep samples, large
-  timestamp gaps not credited as progress, full traversal → return →
-  complete, and the caption rules (names the head, never says "follow",
-  retires after its window, returns on stall).
+- `CoverageGridTests` — required-cell count over the elliptical field, cell
+  mapping orientation (yaw right, pitch up), rejection of poses outside the
+  field, overshoot clamping, the dwell requirement, completion reported exactly
+  once per cell, non-required cells counted but never reported, and the two
+  negative tests that encode the original problem: **centre-only movement stays
+  below 5% coverage**, and **a dense eight-spoke pattern cannot reach the
+  completion threshold**.
+- `FreeExplorationControllerTests` — a stationary head never completes however
+  long it runs, fast movement accrues no coverage (with the too-fast cue so the
+  participant knows why), current-cell reporting, full coverage → return →
+  complete, tracking/phone-motion/distance/lateral pauses, `explore` labelling
+  of paused samples, large timestamp gaps not fabricating coverage, and the
+  caption rules (names a body part, never says "follow" or "outline", retires
+  after its window).
 
-Current status: **159 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).
+Current status: **158 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).

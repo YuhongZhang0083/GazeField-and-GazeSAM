@@ -262,17 +262,17 @@ struct MeasurementView: View {
             modePicker
             if viewModel.snapshot.stage == .recording
                 || viewModel.snapshot.stage == .paused {
-                // The eight-direction checklist is meaningless for a
-                // continuous sweep; that mode shows path progress instead.
+                // The eight-direction checklist is meaningless for free
+                // exploration; that mode shows the coverage grid instead.
                 if viewModel.snapshot.recordingMode == .eightSpoke {
                     DirectionChecklist(completed: viewModel.snapshot.completedDirections)
-                } else if let sweep = viewModel.snapshot.guidance?.sweep {
-                    SweepProgressBar(progress: sweep.progress, stalled: sweep.isStalled)
+                } else if let coverage = viewModel.snapshot.guidance?.coverage {
+                    CoverageGridView(coverage: coverage)
                 }
                 HStack {
-                    if viewModel.snapshot.recordingMode == .spiralSweep {
-                        Text(String(format: "Sweep %.0f%%",
-                                    (viewModel.snapshot.guidance?.sweep?.progress ?? 0) * 100))
+                    if viewModel.snapshot.recordingMode == .freeExploration {
+                        let coverage = viewModel.snapshot.guidance?.coverage
+                        Text("\(coverage?.coveredCells ?? 0)/\(coverage?.requiredCells ?? 0) cells")
                     } else if let guidance = viewModel.snapshot.guidance {
                         Text("Stage \(min(guidance.stageIndex + 1, guidance.stageCount)) of \(guidance.stageCount)")
                     }
@@ -532,31 +532,76 @@ struct DirectionChecklist: View {
     }
 }
 
-/// Coverage bar for the spiral sweep — the continuous analogue of the
-/// eight-direction checklist. Placed at the bottom of the screen, far from the
-/// fixation dot, and it only ever grows, so it needs no attention: progress is
-/// also signalled by the guide outline the participant is already following.
-struct SweepProgressBar: View {
-    let progress: Double
-    let stalled: Bool
+/// The coverage grid: the whole interface for free exploration.
+///
+/// Each square is a patch of the (yaw, pitch) field — left/right is head yaw,
+/// up/down is head pitch, mirrored to match the virtual head. A square fills in
+/// as samples accumulate there and turns solid once it has enough. The
+/// participant moves until the grid is full; there is nothing to match, aim at,
+/// or interpret.
+///
+/// It lives at the bottom of the screen, far from the fixation dot, and is
+/// deliberately glanceable in one look — a haptic tick fires whenever a square
+/// completes, so progress can be *felt* without looking at all.
+struct CoverageGridView: View {
+    let coverage: ExplorationGuidanceState
+
+    private let cellSize: CGFloat = 15
+    private let spacing: CGFloat = 3
 
     var body: some View {
-        VStack(spacing: 3) {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.12))
-                    Capsule()
-                        .fill(stalled ? Color.orange : Color.green)
-                        .frame(width: geo.size.width * min(max(progress, 0), 1))
+        VStack(spacing: 5) {
+            VStack(spacing: spacing) {
+                ForEach(0..<coverage.rows, id: \.self) { row in
+                    HStack(spacing: spacing) {
+                        ForEach(0..<coverage.columns, id: \.self) { column in
+                            cell(column: column, row: row)
+                        }
+                    }
                 }
             }
-            .frame(height: 5)
-            Text(stalled ? "Teal head waiting — aim your head to match it"
-                         : "Spiral coverage · eyes on the dot")
+            Text(caption)
                 .font(.caption2)
-                .foregroundStyle(stalled ? Color.orange : .secondary)
+                .foregroundStyle(.secondary)
         }
-        .accessibilityLabel("Sweep \(Int(progress * 100)) percent complete")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Coverage \(coverage.coveredCells) of \(coverage.requiredCells) cells")
+    }
+
+    private var caption: String {
+        let remaining = max(0, coverage.requiredCells - coverage.coveredCells)
+        if remaining == 0 { return "Field covered" }
+        return "Fill the grid · eyes on the dot · \(remaining) to go"
+    }
+
+    @ViewBuilder
+    private func cell(column: Int, row: Int) -> some View {
+        let index = row * coverage.columns + column
+        let required = coverage.cellRequired.indices.contains(index)
+            ? coverage.cellRequired[index] : false
+        let fill = coverage.cellFill.indices.contains(index) ? coverage.cellFill[index] : 0
+        let isCurrent = coverage.currentColumn == column && coverage.currentRow == row
+
+        RoundedRectangle(cornerRadius: 3)
+            .fill(color(required: required, fill: fill))
+            .frame(width: cellSize, height: cellSize)
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    // Where you are right now — a thin white outline, so the
+                    // grid reads as a map rather than an abstract meter.
+                    .stroke(Color.white.opacity(isCurrent ? 0.95 : 0), lineWidth: 1.5)
+            )
+            .opacity(required ? 1 : 0.18)
+    }
+
+    /// Empty → faint grey; partially sampled → dim green; complete → solid
+    /// green. Cells outside the elliptical field are dimmed by `opacity` above
+    /// and never need filling.
+    private func color(required: Bool, fill: Double) -> Color {
+        guard required else { return Color.white.opacity(0.10) }
+        if fill >= 1 { return Color.green.opacity(0.9) }
+        if fill <= 0 { return Color.white.opacity(0.12) }
+        return Color.green.opacity(0.25 + 0.45 * fill)
     }
 }
 
@@ -595,10 +640,7 @@ struct CenteredHeadBoundary: View {
                 userRightOffsetMeters: snapshot.alignment.userRightOffsetMeters,
                 userUpOffsetMeters: snapshot.alignment.userUpOffsetMeters,
                 distanceDeviationMeters: snapshot.distanceDeviationMeters,
-                faceTracked: snapshot.faceTracked,
-                targetYawDegrees: sweep?.targetYawDegrees,
-                targetPitchDegrees: sweep?.targetPitchDegrees,
-                guideStalled: sweep?.isStalled ?? false)
+                faceTracked: snapshot.faceTracked)
                 .frame(width: headSize.width, height: headSize.height)
 
             // Alignment cue sits ABOVE the hold ring (radius 104 in
@@ -615,9 +657,6 @@ struct CenteredHeadBoundary: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Head position: \(cueText ?? "aligned")")
     }
-
-    /// Spiral-sweep guide state, nil in eight-spoke mode and outside the sweep.
-    private var sweep: SweepGuidanceState? { snapshot.guidance?.sweep }
 
     private var aligned: Bool { snapshot.alignment.isAligned }
 

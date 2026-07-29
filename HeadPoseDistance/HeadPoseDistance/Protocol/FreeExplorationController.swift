@@ -1,96 +1,81 @@
 import Foundation
 
-/// Pose-driven state machine for the continuous spiral sweep protocol.
+/// Pose-driven state machine for the free-exploration protocol.
 ///
-/// The participant keeps their eyes on the fixed fixation dot and rotates
-/// their head to follow a guide that traces a `SpiralSweepPath`. Because the
-/// Aria eye camera is head-mounted, holding fixation while the head rotates
-/// makes the eye counter-rotate through exactly the eye-in-head field the
-/// gaze model needs — and the spiral visits that field at uniform areal
-/// density instead of along eight radial lines.
+/// The participant keeps their eyes on the fixed fixation dot and moves their
+/// head freely — in practice, slow widening circles, as if drawing with the
+/// nose around the dot. There is **no target to match and nothing to follow**:
+/// a coverage grid shows which parts of the (yaw, pitch) field still need
+/// samples, and the session ends when enough of the field is covered.
+///
+/// This replaced a guided spiral. The spiral produced uniform areal density
+/// *if followed accurately*, but asking someone to match the orientation of a
+/// translucent 3D head — in peripheral vision, while holding fixation — was an
+/// interface people could not read. Measuring coverage directly is easier to
+/// perform and a stronger guarantee: every required cell must hold at least
+/// `coverageSamplesPerCell` usable samples, rather than density being inferred
+/// from how well a path was tracked.
 ///
 /// State graph:
 ///
 ///     returningToNeutral ──reachedNeutral──▶ holdingNeutral
 ///     holdingNeutral ──leftNeutral──▶ returningToNeutral
-///     holdingNeutral ──sweepStarted──▶ sweeping
-///     sweeping ──sweepStalled──▶ sweepStalled
-///     sweepStalled ──sweepResumed──▶ sweeping
-///     sweeping ──sweepCompleted──▶ returningToNeutral (final)
+///     holdingNeutral ──explorationStarted──▶ exploring
+///     exploring ──coverageComplete──▶ returningToNeutral (final)
 ///     holdingNeutral (final) ──allStagesComplete──▶ complete
 ///
-/// plus the same tracking / distance / phone-motion pause states as the
-/// eight-spoke protocol.
-///
-/// **The guide never runs away.** Progress advances only while the head is
-/// within `sweepFollowToleranceDegrees` of the guide; otherwise the guide
-/// waits (`sweepStalled`). So elapsed time is never credited as coverage, and
-/// every recorded pose genuinely lies near the intended path. The corollary
-/// is that a participant who stops following simply never finishes — there is
-/// deliberately no timeout that would auto-complete a sweep. Stopping early is
-/// safe: `sweepProgress` is recorded per sample, so a partial sweep is still
-/// usable data.
-final class SpiralSweepController: ProtocolControlling {
+/// plus the same tracking / distance / phone-motion pause states as the other
+/// protocols. Coverage accrues only while `exploring`, unpaused, and moving
+/// slowly enough to be usable — so elapsed time is never credited as coverage,
+/// and there is deliberately no timeout that could finish a session early.
+/// Stopping early is safe: per-sample coverage is exported.
+final class FreeExplorationController: ProtocolControlling {
 
     private let config: MeasurementConfig
-    private let path: SpiralSweepPath
 
     // MARK: - State
 
     private(set) var state: GuidanceStateKind = .returningToNeutral
     private(set) var transitions: [ProtocolTransition] = []
-    /// Seconds of *following* accumulated — not wall-clock elapsed.
-    private(set) var sweepElapsed: TimeInterval = 0
-    /// True once the spiral has been traversed end to end.
-    private(set) var sweepFinished = false
+    private(set) var grid: CoverageGrid
+    private(set) var coverageComplete = false
 
     private var resumeState: GuidanceStateKind = .returningToNeutral
     private var startTimestamp: TimeInterval?
     private var lastUpdateTimestamp: TimeInterval?
     private var neutralHoldStartTime: TimeInterval?
-    /// When the sweep first began — used to retire the opening caption.
-    private var firstSweepStartTime: TimeInterval?
+    private var firstExploreStartTime: TimeInterval?
+    /// Set for the single frame on which a required cell filled up, so the view
+    /// model can fire one haptic tick.
+    private var completedCellThisFrame = false
 
-    // Distance hysteresis bookkeeping (mirrors GuidedMovementController).
+    // Distance hysteresis bookkeeping (mirrors the other controllers).
     private var distanceOutsideSince: TimeInterval?
     private var distanceInsideSince: TimeInterval?
 
     init(config: MeasurementConfig) {
         self.config = config
-        self.path = SpiralSweepPath(config: config)
-    }
-
-    /// 0…1 along the spiral.
-    var progress: Double {
-        guard config.sweepDurationSeconds > 0 else { return 1 }
-        return min(1, sweepElapsed / config.sweepDurationSeconds)
-    }
-
-    private var currentTarget: SpiralSweepPath.Target {
-        path.target(atProgress: progress)
+        self.grid = CoverageGrid(config: config)
     }
 
     // MARK: - Update
 
     func update(_ input: ProtocolGuidanceInput) -> ProtocolGuidanceOutput {
         let t = input.timestamp
+        completedCellThisFrame = false
+
         if startTimestamp == nil {
             startTimestamp = t
             record(from: state, to: state, at: t, reason: .recordingStarted)
         }
 
         // A long gap between updates (backgrounding, user pause) must not be
-        // credited to the neutral hold or to sweep progress.
-        var dt: TimeInterval = 0
-        if let last = lastUpdateTimestamp {
+        // credited to the neutral hold.
+        if let last = lastUpdateTimestamp, t - last > config.updateGapResetSeconds {
             let gap = t - last
-            if gap > config.updateGapResetSeconds {
-                neutralHoldStartTime = neutralHoldStartTime.map { $0 + gap }
-                distanceOutsideSince = nil
-                distanceInsideSince = nil
-            } else {
-                dt = max(0, gap)
-            }
+            neutralHoldStartTime = neutralHoldStartTime.map { $0 + gap }
+            distanceOutsideSince = nil
+            distanceInsideSince = nil
         }
         lastUpdateTimestamp = t
 
@@ -99,7 +84,7 @@ final class SpiralSweepController: ProtocolControlling {
         updatePauses(input)
 
         if !isPausedState(state) {
-            updateActive(input, dt: dt)
+            updateActive(input)
         }
 
         return output(input: input)
@@ -112,8 +97,8 @@ final class SpiralSweepController: ProtocolControlling {
     }
 
     /// Highest-priority failure wins: tracking > phone motion > distance.
-    /// Identical policy to the eight-spoke protocol so the two modes pause on
-    /// exactly the same conditions and remain comparable.
+    /// Identical policy to the other protocols so all modes pause on exactly
+    /// the same conditions and stay comparable.
     private func updatePauses(_ input: ProtocolGuidanceInput) {
         let t = input.timestamp
 
@@ -169,14 +154,8 @@ final class SpiralSweepController: ProtocolControlling {
     private func pause(to pauseState: GuidanceStateKind, at t: TimeInterval,
                        reason: GuidanceTransitionReason) {
         if !isPausedState(state) {
-            // Demote holds so paused time never counts as held time. A paused
-            // sweep resumes into `sweeping`, which immediately re-stalls if
-            // the head is no longer near the guide.
-            switch state {
-            case .holdingNeutral: resumeState = .returningToNeutral
-            case .sweepStalled: resumeState = .sweeping
-            default: resumeState = state
-            }
+            // Demote the neutral hold so paused time never counts as held time.
+            resumeState = state == .holdingNeutral ? .returningToNeutral : state
         }
         transition(to: pauseState, at: t, reason: reason)
         neutralHoldStartTime = nil
@@ -188,7 +167,7 @@ final class SpiralSweepController: ProtocolControlling {
 
     // MARK: - Active-state logic
 
-    private func updateActive(_ input: ProtocolGuidanceInput, dt: TimeInterval) {
+    private func updateActive(_ input: ProtocolGuidanceInput) {
         let t = input.timestamp
 
         let center = HeadDirectionProgress.evaluate(
@@ -211,32 +190,19 @@ final class SpiralSweepController: ProtocolControlling {
             } else if let start = neutralHoldStartTime,
                       t - start >= config.neutralHoldSeconds {
                 neutralHoldStartTime = nil
-                if sweepFinished {
+                if coverageComplete {
                     transition(to: .complete, at: t, reason: .allStagesComplete)
                 } else {
-                    if firstSweepStartTime == nil { firstSweepStartTime = t }
-                    transition(to: .sweeping, at: t, reason: .sweepStarted)
+                    if firstExploreStartTime == nil { firstExploreStartTime = t }
+                    transition(to: .exploring, at: t, reason: .explorationStarted)
                 }
             }
 
-        case .sweeping:
-            guard let error = trackingError(input) else { return }
-            if error > config.sweepFollowToleranceDegrees {
-                transition(to: .sweepStalled, at: t, reason: .sweepStalled)
-                return
-            }
-            sweepElapsed += dt
-            if progress >= 1 {
-                sweepFinished = true
-                transition(to: .returningToNeutral, at: t, reason: .sweepCompleted)
-            }
-
-        case .sweepStalled:
-            guard let error = trackingError(input) else { return }
-            // Hysteresis: require a tighter error to resume than to stall, so
-            // a head hovering at the boundary doesn't chatter.
-            if error <= config.sweepFollowResumeDegrees {
-                transition(to: .sweeping, at: t, reason: .sweepResumed)
+        case .exploring:
+            accumulateCoverage(input)
+            if grid.coveredFraction >= config.coverageCompletionFraction {
+                coverageComplete = true
+                transition(to: .returningToNeutral, at: t, reason: .coverageComplete)
             }
 
         default:
@@ -244,13 +210,18 @@ final class SpiralSweepController: ProtocolControlling {
         }
     }
 
-    /// Angular distance from the measured pose to the guide, nil when the
-    /// pose is unavailable.
-    private func trackingError(_ input: ProtocolGuidanceInput) -> Double? {
-        guard let yaw = input.yawDegrees, let pitch = input.pitchDegrees,
-              yaw.isFinite, pitch.isFinite else { return nil }
-        return SpiralSweepPath.trackingError(yawDegrees: yaw, pitchDegrees: pitch,
-                                             target: currentTarget)
+    /// Adds the current pose to the grid, but only when it is data the gaze
+    /// field can actually use. Reaching this point already means the face is
+    /// tracked, the phone is still, and distance/lateral position are inside
+    /// their bands (otherwise the protocol would be paused); the remaining gate
+    /// is head speed, which doubles as the "move slowly" requirement.
+    private func accumulateCoverage(_ input: ProtocolGuidanceInput) {
+        guard let yaw = input.yawDegrees, let pitch = input.pitchDegrees else { return }
+        if let velocity = input.angularVelocityDegPerSec,
+           velocity > config.guidedMaxAngularVelocityDegPerSec {
+            return
+        }
+        completedCellThisFrame = grid.add(yawDegrees: yaw, pitchDegrees: pitch)
     }
 
     // MARK: - Transition recording
@@ -283,20 +254,22 @@ final class SpiralSweepController: ProtocolControlling {
             holdProgress = min(1, (t - start) / config.neutralHoldSeconds)
         }
 
-        // The guide outline is shown only while the sweep is actually running
-        // (or paused mid-sweep), never during the settle or final return —
-        // those phases ask for neutral, and a visible off-neutral outline
-        // would contradict the instruction.
-        var sweep: SweepGuidanceState?
-        if showsSweepGuide {
-            let target = currentTarget
-            sweep = SweepGuidanceState(
-                progress: progress,
-                targetYawDegrees: target.yawDegrees,
-                targetPitchDegrees: target.pitchDegrees,
-                trackingErrorDegrees: trackingError(input),
-                isStalled: state == .sweepStalled)
+        var cell: (column: Int, row: Int)?
+        if showsCoverage, let yaw = input.yawDegrees, let pitch = input.pitchDegrees {
+            cell = grid.cell(yawDegrees: yaw, pitchDegrees: pitch)
         }
+
+        let coverage = ExplorationGuidanceState(
+            columns: grid.columns,
+            rows: grid.rows,
+            cellFill: grid.fillFractions,
+            cellRequired: grid.requiredFlags,
+            coveredCells: grid.coveredRequiredCellCount,
+            requiredCells: grid.requiredCellCount,
+            coveredFraction: grid.coveredFraction,
+            currentColumn: cell?.column,
+            currentRow: cell?.row,
+            completedCellThisFrame: completedCellThisFrame)
 
         return ProtocolGuidanceOutput(
             state: state,
@@ -305,37 +278,35 @@ final class SpiralSweepController: ProtocolControlling {
             instruction: instruction(for: input),
             feedback: feedback(for: input),
             holdProgress: holdProgress,
-            approachProgress: progress,
+            approachProgress: grid.coveredFraction,
             stageIndex: 0,
             stageCount: 1,
             completedDirections: [],
             isComplete: state == .complete,
             isPaused: isPausedState(state),
-            sweep: sweep)
+            coverage: coverage)
     }
 
-    private var showsSweepGuide: Bool {
+    private var showsCoverage: Bool {
         switch state {
-        case .sweeping, .sweepStalled:
+        case .exploring:
             return true
         case .pausedForTracking, .pausedForDistance, .pausedForPhoneMotion:
-            return resumeState == .sweeping || resumeState == .sweepStalled
+            return resumeState == .exploring
         default:
             return false
         }
     }
 
-    /// Phase label written onto recorded samples: `sweep` while following the
-    /// spiral, `center` while settling or returning, `complete` at the end.
+    /// Phase label written onto recorded samples.
     private var protocolPhaseLabel: ProtocolPhase {
         switch state {
-        case .sweeping, .sweepStalled:
-            return .sweep
+        case .exploring:
+            return .explore
         case .returningToNeutral, .holdingNeutral:
             return .center
         case .pausedForTracking, .pausedForDistance, .pausedForPhoneMotion:
-            return (resumeState == .sweeping || resumeState == .sweepStalled)
-                ? .sweep : .center
+            return resumeState == .exploring ? .explore : .center
         case .complete:
             return .complete
         default:
@@ -346,24 +317,18 @@ final class SpiralSweepController: ProtocolControlling {
     private func instruction(for input: ProtocolGuidanceInput) -> String {
         switch state {
         case .returningToNeutral:
-            return sweepFinished ? "Return to center" : "Face straight ahead to begin"
+            return coverageComplete ? "Return to center" : "Face straight ahead to begin"
         case .holdingNeutral:
             return "Hold still"
-        case .sweeping:
-            // Two things this wording has to get right:
-            // - says HEAD, not "follow" — "follow the outline" reads as an
-            //   instruction to track it with the gaze, the one mistake that
-            //   would invalidate the recording;
-            // - says AIM/match, not "fill" — the task is matching a direction,
-            //   and "fill" describes matching a size or position, which is
-            //   what the separate dashed oval already asks for.
-            if let start = firstSweepStartTime,
-               input.timestamp - start > config.sweepInstructionSeconds {
+        case .exploring:
+            // The caption sits below the fixation dot, so reading it breaks
+            // fixation. It orients the participant and then gets out of the
+            // way — the grid at the bottom carries the state from then on.
+            if let start = firstExploreStartTime,
+               input.timestamp - start > config.explorationInstructionSeconds {
                 return ""
             }
-            return "Aim your head where the teal head aims"
-        case .sweepStalled:
-            return "Aim your head where the teal head aims"
+            return "Circle your nose around the dot, slowly"
         case .pausedForTracking:
             return "Face not tracked"
         case .pausedForPhoneMotion:
@@ -382,12 +347,13 @@ final class SpiralSweepController: ProtocolControlling {
     }
 
     private func feedback(for input: ProtocolGuidanceInput) -> GuidanceFeedback? {
-        guard state == .sweeping || state == .sweepStalled else { return nil }
+        guard state == .exploring else { return nil }
         if let velocity = input.angularVelocityDegPerSec,
            velocity > config.guidedMaxAngularVelocityDegPerSec {
+            // Not cosmetic: samples above this speed are not counted, so the
+            // participant needs to know why coverage stopped growing.
             return .tooFast
         }
-        if state == .sweepStalled { return .behindGuide }
         return nil
     }
 }
