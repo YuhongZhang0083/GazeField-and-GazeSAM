@@ -110,7 +110,8 @@ final class MeasurementPipeline {
         return ScreenGeometry(widthPoints: screenWidthPoints,
                               scale: screenScale,
                               dotCenterGlobal: dotCenter,
-                              cameraCenterYPoints: config.cameraCenterYPoints)
+                              cameraCenterYPoints: config.cameraCenterYPoints,
+                              cameraCenterXOffsetPoints: config.cameraCenterXOffsetPoints)
             .expectedFaceOffset
     }
 

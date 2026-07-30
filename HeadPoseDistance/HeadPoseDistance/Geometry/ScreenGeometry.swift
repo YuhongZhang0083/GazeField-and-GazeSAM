@@ -53,6 +53,14 @@ struct ScreenGeometry: Equatable {
     /// Vertical position of the TrueDepth camera centre in the same global
     /// point coordinates.
     var cameraCenterYPoints: Double
+    /// Horizontal offset of the camera from the screen centreline, in points;
+    /// positive = right of centre.
+    ///
+    /// The camera is **not** on the phone's centreline. Inside the notch /
+    /// Dynamic Island the Face ID sensors and the front camera sit side by side,
+    /// and ARKit's face anchor is expressed in the *front camera's* frame — so a
+    /// face centred on the screen reads as offset toward the opposite side.
+    var cameraCenterXOffsetPoints: Double = 0
 
     /// Points per inch for a display of this scale.
     ///
@@ -70,15 +78,17 @@ struct ScreenGeometry: Equatable {
         Self.pointsPerInch(scale: scale) * Self.inchesPerMeter
     }
 
-    /// Horizontal camera position — centred on every current iPhone.
-    var cameraCenterXPoints: Double { widthPoints / 2 }
+    /// Horizontal camera position: the screen centreline plus the module's
+    /// off-centre offset.
+    var cameraCenterXPoints: Double { widthPoints / 2 + cameraCenterXOffsetPoints }
 
     /// Offset from the camera axis at which a face is on the dot's normal axis,
     /// i.e. looking straight ahead at the dot.
     ///
     /// The dot is below the camera, so the expected vertical offset is
-    /// **negative** (the face sits lower than the camera axis). Horizontal is
-    /// normally 0 because both the camera and the dot are centred.
+    /// **negative** (the face sits lower than the camera axis). Horizontally the
+    /// dot is centred but the camera is not, so the expected offset is the
+    /// negative of the camera's own off-centre offset.
     var expectedFaceOffset: ExpectedFaceOffset {
         guard scale > 0, widthPoints > 0, pointsPerMeter > 0,
               dotCenterGlobal.x.isFinite, dotCenterGlobal.y.isFinite else {

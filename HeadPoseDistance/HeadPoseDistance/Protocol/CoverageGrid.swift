@@ -17,17 +17,17 @@ import Foundation
 /// `samplesPerCell` usable samples before the session can finish. The
 /// participant moves freely; the grid says what is still missing.
 ///
-/// The required field is the **full rectangle** spanning the configured extent,
-/// so the grid covers the whole field of view and leaves no corner for the
-/// heatmap to extrapolate across. `requiresCorners: false` falls back to the
-/// inscribed ellipse, which is easier on the corners — they demand the largest
-/// combined rotation — at the cost of leaving them unmeasured.
+/// The field is a square box, and every cell inside it is required except those
+/// whose centre demands more than `maxCombinedDegrees` of combined rotation. That
+/// cap is physiological, not aesthetic: what bounds the reachable region is total
+/// eye-in-head rotation, so the reachable region is a disc. At a ±32° field the
+/// box corners demand 42.6°, past the eye's range while fixation is held, and
+/// requiring them would stall every session.
 ///
 /// Note that *acceptance* and *requirement* are deliberately separate. Which
-/// poses are accepted is a per-axis bound (below), while which cells must be
-/// filled is the rectangle-or-ellipse choice. Coupling them, as an earlier
-/// version did, made the corner cells' own centres fall outside an elliptical
-/// acceptance gate — required but unreachable.
+/// poses are accepted is a per-axis bound (below); which cells must be filled is
+/// the radial cap. Coupling them, as an earlier version did, made corner cells'
+/// own centres fall outside a radial acceptance gate — required but unreachable.
 struct CoverageGrid: Equatable {
 
     /// Yaw cells (left→right) and pitch cells (top→bottom).
@@ -43,12 +43,10 @@ struct CoverageGrid: Equatable {
     /// into the edge cell), as a fraction of amplitude. Without some slack a
     /// participant who overshoots slightly would get no credit at all.
     let acceptanceMargin: Double
-    /// When true the required field is the full rectangle, so the grid covers
-    /// the entire configured field. When false only the inscribed ellipse is
-    /// required, which is gentler on the corners but leaves them unmeasured —
-    /// and the heatmap then extrapolates there, the failure this whole protocol
-    /// exists to prevent.
-    let requiresCorners: Bool
+    /// Largest combined rotation √(yaw² + pitch²) a cell may sit at and still be
+    /// required — a physiological limit, since what bounds the reachable region
+    /// of the plane is total eye-in-head rotation, making that region a disc.
+    let maxCombinedDegrees: Double
 
     private(set) var counts: [Int]
 
@@ -58,14 +56,14 @@ struct CoverageGrid: Equatable {
          pitchAmplitudeDegrees: Double,
          samplesPerCell: Int,
          acceptanceMargin: Double = 0.15,
-         requiresCorners: Bool = true) {
+         maxCombinedDegrees: Double = .greatestFiniteMagnitude) {
         self.columns = max(1, columns)
         self.rows = max(1, rows)
         self.yawAmplitudeDegrees = max(1e-6, yawAmplitudeDegrees)
         self.pitchAmplitudeDegrees = max(1e-6, pitchAmplitudeDegrees)
         self.samplesPerCell = max(1, samplesPerCell)
         self.acceptanceMargin = max(0, acceptanceMargin)
-        self.requiresCorners = requiresCorners
+        self.maxCombinedDegrees = max(0, maxCombinedDegrees)
         self.counts = [Int](repeating: 0, count: self.columns * self.rows)
     }
 
@@ -75,7 +73,7 @@ struct CoverageGrid: Equatable {
                   yawAmplitudeDegrees: config.coverageYawAmplitudeDegrees,
                   pitchAmplitudeDegrees: config.coveragePitchAmplitudeDegrees,
                   samplesPerCell: config.coverageSamplesPerCell,
-                  requiresCorners: config.coverageRequiresCorners)
+                  maxCombinedDegrees: config.coverageMaxCombinedDegrees)
     }
 
     // MARK: - Geometry
@@ -90,13 +88,19 @@ struct CoverageGrid: Equatable {
         return (u, v)
     }
 
-    /// Whether a cell must be covered. With `requiresCorners` the answer is
-    /// always yes — the required field is the whole rectangle. Otherwise only
-    /// cells whose centre falls inside the inscribed ellipse count.
-    func isRequired(column: Int, row: Int) -> Bool {
-        guard !requiresCorners else { return true }
+    /// Combined rotation a cell's centre sits at, in degrees.
+    func cellCombinedDegrees(column: Int, row: Int) -> Double {
         let c = cellCenter(column: column, row: row)
-        return c.u * c.u + c.v * c.v <= 1.0
+        let yaw = c.u * yawAmplitudeDegrees
+        let pitch = c.v * pitchAmplitudeDegrees
+        return (yaw * yaw + pitch * pitch).squareRoot()
+    }
+
+    /// Whether a cell must be covered: yes unless its centre demands more
+    /// combined rotation than `maxCombinedDegrees`. Cells beyond the cap are
+    /// still counted if visited — extra data is never discarded.
+    func isRequired(column: Int, row: Int) -> Bool {
+        cellCombinedDegrees(column: column, row: row) <= maxCombinedDegrees
     }
 
     /// Cell a pose falls in, or nil when it is outside the accepted field.

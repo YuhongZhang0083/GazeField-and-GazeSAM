@@ -198,25 +198,39 @@ That is the whole protocol. No target, no pacing, no fixed order.
 
 ### The grid
 
-`CoverageGrid` bins neutral-relative (yaw, pitch) into a **13 × 13 grid over the
-full square field** — ±25° yaw × ±25° pitch, so **all 169 cells are required,
-corners included**. The extent is set by where fixation breaks: the eye reaches
-its comfortable rotation limit around ±25–30°, past which the participant can no
-longer hold the dot and the sample stops meaning anything.
+`CoverageGrid` bins neutral-relative (yaw, pitch) into a **17 × 17 grid over a
+±32° square field** — 289 cells, **249 of them required**. The extent is set by
+where fixation breaks: the eye's comfortable rotation limit is ~±30° (mechanical
+~±45°), and ARKit starts losing the face past ~±35° of yaw, so a wider field would
+only add cells nobody can reach with the dot still fixated.
+
+Which cells are required is a **radial reachability cap**
+(`coverageMaxCombinedDegrees`, 34°), not a shape preference: what bounds the
+reachable region of the plane is total eye-in-head rotation, so that region is a
+disc. At ±32° the box corners demand **42.6°** of combined rotation — past the
+eye's range while fixation is held — so requiring them would stall every session.
+The cap trims only diagonals; the full ±30.1° reach along each axis stays
+required, and a test enforces that.
+
+Crucially the widened field is a **strict superset** of the previous ±25° square
+field: its farthest required cell sat at 32.6°, inside the 34° cap, while axis
+reach grows from 23.1° to 30.1°. Nothing that used to be measured dropped out —
+also enforced by test.
 
 The field is **square** on purpose. An earlier version clipped pitch to ±18° on
 the theory that comfortable eye-in-head range is narrower vertically; in practice
-±25° is reachable in both axes, and the asymmetry just left the upper and lower
-FOV unmeasured — the same extrapolation problem as the excluded corners, in a
-different direction. A square field with a square grid also makes cells
+the same extent is reachable in both axes, and the asymmetry just left the upper
+and lower FOV unmeasured — the same extrapolation problem as excluded corners, in
+a different direction. A square field with a square grid also makes cells
 isotropic, so the grid reads as an undistorted map of head direction.
 
 Grid dimensions are **odd** deliberately: an even grid puts a cell *boundary* at
 neutral, so the resting pose straddles two cells and the current-cell marker
 flickers between them.
 
-Cells are 3.85° square, so the **largest hole a "covered" field can contain is
-half a cell diagonal = 2.72°** — inside the heatmap kernel's `--sigma-min 3`.
+Cells are 3.76° square, so the **largest hole a "covered" field can contain is
+half a cell diagonal = 2.66°** — inside the heatmap kernel's `--sigma-min 3`. 17
+is the smallest odd count that holds that guarantee at the wider extent.
 That is the number that matters: it bounds what the kernel ever has to bridge by
 extrapolation. `coverageRequiresCorners: false` falls back to the inscribed
 ellipse, gentler on the corners (they demand the largest combined rotation) but
@@ -232,9 +246,9 @@ round-trips from its own centre**, the invariant that catches this class of bug.
 
 - A cell needs `coverageSamplesPerCell` (8, ≈0.13 s at 60 Hz) samples before it
   counts. That dwell requirement stops a fast swing through a cell from claiming
-  it on one or two frames. 169 cells × 8 samples ≈ 23 s of pure dwell; travel
-  between cells dominates the real session length, which measures ~100 s at the
-  observed fill rate of ~0.6 s per cell.
+  it on one or two frames. 249 cells × 8 samples ≈ 33 s of pure dwell; travel
+  between cells dominates the real session length, which projects to ~150 s at the
+  fill rate observed on device (~0.6 s per cell).
 - Samples only count while the protocol is unpaused (face tracked, phone still,
   distance and lateral position inside their bands) **and** head speed is below
   `guidedMaxAngularVelocityDegPerSec`. Rushing therefore makes the grid fill
@@ -243,12 +257,11 @@ round-trips from its own centre**, the invariant that catches this class of bug.
   outside are ignored, so the coverage claim stays honest.
 - Cells outside the ellipse are never required but are still counted — extra
   data is never discarded.
-- The session ends at `coverageCompletionFraction` (0.90), not 1.0: the corner
-  cells demand ~34° of combined rotation and are unreachable for some people. At
-  169 cells this allows **16 misses — enough to absorb an entire 13-cell row**,
-  which is the realistic failure mode: downward head pitch needs the eye to roll
-  *up*, its most limited direction. Stopping early is safe: coverage is exported
-  per sample.
+- The session ends at `coverageCompletionFraction` (0.90), not 1.0: cells at the
+  cap still demand ~34° and are hard for some people. At 249 required cells this
+  allows **24 misses — enough to absorb an entire 17-cell edge row**, which is the
+  realistic failure mode: downward head pitch needs the eye to roll *up*, its most
+  limited direction. Stopping early is safe: coverage is exported per sample.
 
 `CoverageGridTests` pins the behaviour that matters, including two negative
 tests that encode the original problem: centre-only movement leaves coverage
@@ -258,10 +271,10 @@ threshold, because the wedges stay empty.
 ### Reading the grid without breaking fixation
 
 The grid is drawn **centred on the fixation dot**, not at the bottom of the
-screen. That is the whole trick: at 8 pt cells a 13 × 13 grid spans 128 × 128 pt,
-subtending **2.2° at 55 cm** (≈ the width of the fovea) or 3.0° at 41 cm.
-Individual cells are 8–11 arcmin — an order of magnitude above the ~1 arcmin
-acuity limit, so they stay individually distinguishable. The participant takes in
+screen. That is the whole trick: at 6 pt cells a 17 × 17 grid spans 126 × 126 pt,
+subtending **2.2° at 55 cm** (≈ the width of the fovea) or 2.9° at 41 cm.
+Individual cells are 6–8 arcmin — still several times the ~1 arcmin acuity limit,
+so they stay individually distinguishable. The participant takes in
 the whole grid while fixating the dot, without a saccade.
 
 The first version sat in the bottom bar and pulled the gaze down to check
@@ -315,8 +328,17 @@ pose exists to eliminate. (The earlier device validation recorded neutral at
 translation ≈ 0, i.e. on the camera axis, with a residual centre pitch of +2.2°:
 the same effect.)
 
+The camera is also **not on the phone's centreline**. Inside the notch / Dynamic
+Island the Face ID sensors and the front camera sit side by side, and ARKit's face
+anchor is expressed in the *front camera's* frame — so a face centred on the screen
+reads as offset toward the opposite side. `cameraCenterXOffsetPoints` (47 pt ≈
+7.8 mm right of centre) corrects it. This is an estimate of the camera's position
+within a ~122 pt Island; the sign is what matters most, and it is corroborated by
+the direction of the bias observed on device.
+
 `ScreenGeometry` converts the dot's on-screen position into a real offset from the
-camera axis, and the evaluator measures setup alignment against *that*. The
+camera axis in both axes, and the evaluator measures setup alignment against
+*that*. The
 correction applies only before a neutral pose exists — afterwards the neutral
 translation is the reference and already encodes the position, so applying it
 twice would bias the fixed bounds used during recording.
@@ -327,6 +349,7 @@ Two inputs are approximations, both immaterial at this scale:
 |---|---|---|
 | points-per-inch | display scale (153.3 @3x, 163 @2x) rather than a per-model table | ±2.3 mm |
 | `cameraCenterYPoints` | 28 pt, approximate and mildly device-dependent | ±1.7 mm |
+| `cameraCenterXOffsetPoints` | 47 pt, estimated within a ~122 pt Dynamic Island | ±1.7 mm |
 
 Against a 5 cm `lateralOffsetToleranceMeters` and a 3.9 cm correction, a few
 millimetres of uncertainty does not matter — and it is vastly better than the zero
@@ -334,6 +357,19 @@ it replaces. `ScreenGeometryTests` pins the direction of the relationship
 (correction shrinks as the dot approaches the camera, vanishes at the camera),
 reproduces the reported "Move up" symptom without the fix, confirms it disappears
 with the fix, and confirms a genuinely low face is *still* told to move up.
+
+### The oval boundary now agrees with the tolerance
+
+`VirtualHeadView.offsetScale` exaggerates the measured lateral offset so small
+misalignments are visible. At 6.0 the head left the alignment oval at **2.5 cm** —
+half of `lateralOffsetToleranceMeters` — so the boundary read "misaligned" while
+the validator read "fine", and any modest real offset looked alarming.
+
+It is now **3.0**, derived rather than picked: the head's visible half-width is
+49.4 pt inside a 68 pt oval half-width, leaving 18.6 pt of travel, which at
+123.5 pt per scene unit is 0.15 units; 0.15 / 0.05 m = 3.0. The head now reaches
+the oval edge at exactly 5.02 cm, so *inside the oval* and *within tolerance* mean
+the same thing.
 
 ## Guided protocol: pose-driven state machine
 
@@ -566,9 +602,11 @@ New in the free-exploration update:
   reachable from its own centre**, whole-field completability, completion
   surviving the loss of all four corners **and of an entire bottom row**,
   largest-possible-gap against the heatmap kernel, field extent bounds, a **square
-  field extending as far up as right**, neutral landing on a cell centre rather
-  than a boundary, cell mapping orientation (yaw right, pitch up), rejection of
-  poses outside the
+  field extending as far up as right**, the **radial cap trimming only diagonals
+  and never the axes**, the widened field being a **strict superset** of the
+  previous one, an uncapped grid requiring every cell, neutral landing on a cell
+  centre rather than a boundary, cell mapping orientation (yaw right, pitch up),
+  rejection of poses outside the
   field, overshoot clamping, the dwell requirement, completion reported exactly
   once per cell, non-required cells counted but never reported, and the two
   negative tests that encode the original problem: **centre-only movement stays
@@ -582,4 +620,4 @@ New in the free-exploration update:
   caption rules (names a body part, never says "follow" or "outline", retires
   after its window).
 
-Current status: **180 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).
+Current status: **182 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).

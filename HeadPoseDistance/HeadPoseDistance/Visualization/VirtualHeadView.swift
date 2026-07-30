@@ -23,7 +23,15 @@ struct VirtualHeadView: UIViewRepresentable {
     var faceTracked: Bool
 
     /// Scene-units-per-meter for the lateral offset visualization.
-    static let offsetScale: Float = 6.0
+    ///
+    /// Chosen so the head reaches the alignment oval's edge exactly at
+    /// `lateralOffsetToleranceMeters` (5 cm). At the previous 6.0 the head left
+    /// the oval at 2.5 cm — half the tolerance — so the boundary said
+    /// "misaligned" while the validator said "fine", and any small real offset
+    /// looked alarming. Derivation: the head's visible half-width is 49.4 pt in a
+    /// 68 pt oval half-width, leaving 18.6 pt of travel; at 123.5 pt per scene
+    /// unit that is 0.15 units, and 0.15 / 0.05 m = 3.0.
+    static let offsetScale: Float = 3.0
     /// Head shrink/grow per meter of distance deviation.
     static let distanceScalePerMeter: Float = 3.0
 

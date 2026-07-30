@@ -223,58 +223,61 @@ struct MeasurementConfig: Codable, Equatable {
     /// Extent of the (yaw, pitch) field the participant must cover, as a
     /// half-range in degrees. **Square**: vertical extent matches horizontal, so
     /// the field covers as much of the upper and lower FOV as it does left and
-    /// right. An earlier asymmetric field (±25 × ±18) was cut short vertically on
-    /// the theory that comfortable eye-in-head range is narrower there; in
-    /// practice ±25° is reachable in both axes, and clipping pitch just left the
-    /// top and bottom of the gaze field unmeasured.
+    /// right.
     ///
-    /// ±25° is the practical ceiling: the eye reaches its comfortable rotation
-    /// limit around ±25–30°, past which fixation on the dot breaks and the
-    /// sample stops meaning anything. Downward head pitch is the hardest
-    /// direction (it needs the eye to roll *up*, the most limited direction), so
-    /// the completion threshold is set to absorb losing a whole row.
-    var coverageYawAmplitudeDegrees: Double = 25.0
-    var coveragePitchAmplitudeDegrees: Double = 25.0
+    /// ±32° pushes to the practical ceiling. The binding limits are the eye
+    /// (comfortable rotation ~±30°, mechanical ~±45°) and ARKit face tracking,
+    /// which starts losing the face somewhere past ~±35° of yaw. Going wider
+    /// would add cells nobody can reach with the dot still fixated.
+    var coverageYawAmplitudeDegrees: Double = 32.0
+    var coveragePitchAmplitudeDegrees: Double = 32.0
 
-    /// Whether the corner cells — outside the inscribed ellipse — must also be
-    /// covered. True means the required field is the **full rectangle**, so the
-    /// grid spans the entire configured field with no unreachable-looking gaps.
+    /// Largest combined rotation, √(yaw² + pitch²), a cell may sit at and still
+    /// be required. This is a **physiological** limit, not a shape preference:
+    /// the reachable region of the (yaw, pitch) plane is a disc, because what
+    /// bounds it is total eye-in-head rotation.
     ///
-    /// Set false to require only the inscribed ellipse, which is gentler
-    /// (corners demand the largest combined rotation: at the default amplitudes
-    /// the corner cell centre is ~27° of combined eye-in-head angle) but leaves
-    /// the corners of the field unmeasured, so the heatmap extrapolates there.
-    var coverageRequiresCorners: Bool = true
+    /// It matters once the field is wide. At ±32° the box corners demand 42.6°
+    /// of combined rotation — past the eye's mechanical range while holding
+    /// fixation — so requiring them would stall every session. At 34° the
+    /// required region still **strictly contains** the previous ±25° square
+    /// field (whose farthest cell centre was 32.6°) while reaching 30.1° along
+    /// each axis instead of 23.1°.
+    ///
+    /// Set very large (e.g. 1000) to require the full rectangle.
+    var coverageMaxCombinedDegrees: Double = 34.0
 
-    /// Grid resolution: 13 × 13 over the square field gives 169 required cells
-    /// of 3.85° each, so the largest possible unmeasured hole — half a cell
-    /// diagonal — is 2.72°, inside the heatmap kernel's `--sigma-min 3`.
+    /// Grid resolution: 17 × 17 over the ±32° field gives 289 cells of 3.76°
+    /// each — 249 of them required, once the 34° reachability cap is applied — so
+    /// the largest possible unmeasured hole, half a cell diagonal, is 2.66°,
+    /// inside the heatmap kernel's `--sigma-min 3`. 17 is the smallest odd count
+    /// that holds the cell size (and hence that guarantee) at the wider extent.
     ///
     /// Odd counts on purpose: an even grid puts a cell *boundary* at neutral, so
     /// the resting pose straddles two cells and the current-cell marker flickers
     /// between them. Odd gives a centre cell aligned with neutral.
     ///
-    /// At the observed fill rate (~0.6 s per cell) this is a ~100 s session.
+    /// At the observed fill rate (~0.6 s per cell) this is a ~150 s session.
     /// Raising it further costs time roughly linearly and shrinks the on-screen
     /// cells below the size at which they can be told apart at the foveal scale
     /// the grid is drawn at.
-    var coverageColumns: Int = 13
-    var coverageRows: Int = 13
+    var coverageColumns: Int = 17
+    var coverageRows: Int = 17
 
     /// Usable samples a cell needs before it counts as covered. At 60 Hz this
     /// is a ~0.13 s dwell requirement, which stops a fast swing through a cell
     /// from claiming it on one or two frames. Kept low because the grid is dense:
-    /// 169 cells × 8 samples ≈ 23 s of pure dwell, with travel between cells
+    /// 249 cells × 8 samples ≈ 33 s of pure dwell, with travel between cells
     /// dominating the real duration.
     var coverageSamplesPerCell: Int = 8
 
     /// Fraction of required cells that must be covered to finish. Not 1.0: with
     /// the corners required, the most extreme cells demand the largest combined
-    /// rotation (~34° at the square field's corners) and are unreachable for some
-    /// people; demanding every one would stall the session indefinitely. At 169
-    /// cells this allows 16 misses — enough to absorb an entire 13-cell row, which
-    /// is the realistic failure mode (downward pitch needs the eye to roll up,
-    /// its most limited direction). Stopping early is always safe because
+    /// rotation and are hard for some people even after the reachability cap;
+    /// demanding every one would stall the session indefinitely. At 249 required
+    /// cells this allows 24 misses — enough to absorb an entire 17-cell edge row,
+    /// which is the realistic failure mode (downward pitch needs the eye to roll
+    /// up, its most limited direction). Stopping early is always safe because
     /// per-sample coverage is exported.
     var coverageCompletionFraction: Double = 0.90
 
@@ -299,6 +302,21 @@ struct MeasurementConfig: Codable, Equatable {
     /// quantity it corrects is ~230 pt, so a ±10 pt error here is a ~4% error on
     /// a few-centimetre correction — immaterial against a 5 cm tolerance.
     var cameraCenterYPoints: Double = 28.0
+
+    /// Horizontal offset of the TrueDepth camera from the screen centreline, in
+    /// points; positive = right of centre.
+    ///
+    /// The camera is not on the phone's centreline: inside the notch / Dynamic
+    /// Island the Face ID sensors and the front camera sit side by side, and
+    /// ARKit's face anchor is expressed in the front camera's frame. A face
+    /// centred on the screen therefore reads as offset toward the opposite side —
+    /// which is exactly the leftward bias observed on device.
+    ///
+    /// 47 pt ≈ 7.8 mm, an estimate of the camera's position within a ~122 pt
+    /// Dynamic Island. Approximate and device-dependent; the sign is what matters
+    /// most and is corroborated by the observed direction of the bias. Verify by
+    /// centring deliberately and checking the head sits centred in the oval.
+    var cameraCenterXOffsetPoints: Double = 47.0
 
     /// Diameter of the fixed central fixation dot, in points (16–20 pt spec).
     var dotDiameterPoints: Double = 18.0
