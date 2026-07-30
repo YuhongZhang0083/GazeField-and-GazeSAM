@@ -198,14 +198,25 @@ That is the whole protocol. No target, no pacing, no fixed order.
 
 ### The grid
 
-`CoverageGrid` bins neutral-relative (yaw, pitch) into an **11 × 9 grid over the
-full rectangular field** — ±25° yaw × ±18° pitch, so **all 99 cells are
-required, corners included**. The extent is set by where fixation breaks: the eye
-reaches its comfortable rotation limit around ±25–30°, past which the participant
-can no longer hold the dot and the sample stops meaning anything.
+`CoverageGrid` bins neutral-relative (yaw, pitch) into a **13 × 13 grid over the
+full square field** — ±25° yaw × ±25° pitch, so **all 169 cells are required,
+corners included**. The extent is set by where fixation breaks: the eye reaches
+its comfortable rotation limit around ±25–30°, past which the participant can no
+longer hold the dot and the sample stops meaning anything.
 
-Cells are 4.55° × 4.00°, so the **largest hole a "covered" field can contain is
-half a cell diagonal = 3.03°** — matching the heatmap kernel's `--sigma-min 3`.
+The field is **square** on purpose. An earlier version clipped pitch to ±18° on
+the theory that comfortable eye-in-head range is narrower vertically; in practice
+±25° is reachable in both axes, and the asymmetry just left the upper and lower
+FOV unmeasured — the same extrapolation problem as the excluded corners, in a
+different direction. A square field with a square grid also makes cells
+isotropic, so the grid reads as an undistorted map of head direction.
+
+Grid dimensions are **odd** deliberately: an even grid puts a cell *boundary* at
+neutral, so the resting pose straddles two cells and the current-cell marker
+flickers between them.
+
+Cells are 3.85° square, so the **largest hole a "covered" field can contain is
+half a cell diagonal = 2.72°** — inside the heatmap kernel's `--sigma-min 3`.
 That is the number that matters: it bounds what the kernel ever has to bridge by
 extrapolation. `coverageRequiresCorners: false` falls back to the inscribed
 ellipse, gentler on the corners (they demand the largest combined rotation) but
@@ -221,8 +232,9 @@ round-trips from its own centre**, the invariant that catches this class of bug.
 
 - A cell needs `coverageSamplesPerCell` (8, ≈0.13 s at 60 Hz) samples before it
   counts. That dwell requirement stops a fast swing through a cell from claiming
-  it on one or two frames. 99 cells × 8 samples ≈ 13 s of pure dwell; travel
-  between cells dominates the real session length.
+  it on one or two frames. 169 cells × 8 samples ≈ 23 s of pure dwell; travel
+  between cells dominates the real session length, which measures ~100 s at the
+  observed fill rate of ~0.6 s per cell.
 - Samples only count while the protocol is unpaused (face tracked, phone still,
   distance and lateral position inside their bands) **and** head speed is below
   `guidedMaxAngularVelocityDegPerSec`. Rushing therefore makes the grid fill
@@ -232,9 +244,11 @@ round-trips from its own centre**, the invariant that catches this class of bug.
 - Cells outside the ellipse are never required but are still counted — extra
   data is never discarded.
 - The session ends at `coverageCompletionFraction` (0.90), not 1.0: the corner
-  cells demand ~27.8° of combined rotation and are unreachable for some people. At
-  99 cells this allows 9 misses — the four corners plus five spare. Stopping early
-  is safe: coverage is exported per sample.
+  cells demand ~34° of combined rotation and are unreachable for some people. At
+  169 cells this allows **16 misses — enough to absorb an entire 13-cell row**,
+  which is the realistic failure mode: downward head pitch needs the eye to roll
+  *up*, its most limited direction. Stopping early is safe: coverage is exported
+  per sample.
 
 `CoverageGridTests` pins the behaviour that matters, including two negative
 tests that encode the original problem: centre-only movement leaves coverage
@@ -244,9 +258,9 @@ threshold, because the wedges stay empty.
 ### Reading the grid without breaking fixation
 
 The grid is drawn **centred on the fixation dot**, not at the bottom of the
-screen. That is the whole trick: at 10 pt cells an 11 × 9 grid spans 130 × 106 pt,
+screen. That is the whole trick: at 8 pt cells a 13 × 13 grid spans 128 × 128 pt,
 subtending **2.2° at 55 cm** (≈ the width of the fovea) or 3.0° at 41 cm.
-Individual cells are 10–14 arcmin — an order of magnitude above the ~1 arcmin
+Individual cells are 8–11 arcmin — an order of magnitude above the ~1 arcmin
 acuity limit, so they stay individually distinguishable. The participant takes in
 the whole grid while fixating the dot, without a saccade.
 
@@ -550,9 +564,11 @@ New in the free-exploration update:
   correction is not applied twice once a neutral pose exists.
 - `CoverageGridTests` — full-rectangle required-cell count, **every required cell
   reachable from its own centre**, whole-field completability, completion
-  surviving the loss of all four corners, largest-possible-gap against the heatmap
-  kernel, field extent bounds, cell mapping orientation (yaw right, pitch up),
-  rejection of poses outside the
+  surviving the loss of all four corners **and of an entire bottom row**,
+  largest-possible-gap against the heatmap kernel, field extent bounds, a **square
+  field extending as far up as right**, neutral landing on a cell centre rather
+  than a boundary, cell mapping orientation (yaw right, pitch up), rejection of
+  poses outside the
   field, overshoot clamping, the dwell requirement, completion reported exactly
   once per cell, non-required cells counted but never reported, and the two
   negative tests that encode the original problem: **centre-only movement stays
@@ -566,4 +582,4 @@ New in the free-exploration update:
   caption rules (names a body part, never says "follow" or "outline", retires
   after its window).
 
-Current status: **177 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).
+Current status: **180 tests, all passing** (Xcode 26.6, iOS 26.5 simulator).

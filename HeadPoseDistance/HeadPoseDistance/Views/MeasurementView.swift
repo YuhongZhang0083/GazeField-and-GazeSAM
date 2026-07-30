@@ -566,10 +566,16 @@ struct DirectionChecklist: View {
 struct CenteredCoverageGrid: View {
     let coverage: ExplorationGuidanceState
 
-    /// Sized so 11 × 9 cells span ~130 × 106 pt — inside the 136 × 154 pt
-    /// alignment oval, and ~2.2° of visual angle at the working distance, which
-    /// still fits within the fovea.
-    private let cellSize: CGFloat = 10
+    /// Sized so 13 × 13 cells span 128 × 128 pt — inside the 136 × 154 pt
+    /// alignment oval, and 2.2° of visual angle at 55 cm (3.0° at 41 cm), so it
+    /// still fits within the fovea. Cells are 8–11 arcmin, an order of magnitude
+    /// above the ~1 arcmin acuity limit, so they stay individually
+    /// distinguishable.
+    ///
+    /// Square, because the field is square: one cell is the same number of
+    /// degrees horizontally and vertically, so the grid reads as an undistorted
+    /// map of head direction.
+    private let cellSize: CGFloat = 8
     private let spacing: CGFloat = 2
 
     var body: some View {

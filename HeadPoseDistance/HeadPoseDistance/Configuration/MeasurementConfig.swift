@@ -221,13 +221,20 @@ struct MeasurementConfig: Codable, Equatable {
     // MARK: - Free exploration / coverage
 
     /// Extent of the (yaw, pitch) field the participant must cover, as a
-    /// half-range in degrees. Set to the practical limit of the protocol: the
-    /// eye reaches its comfortable rotation limit around ±25–30°, past which
-    /// fixation on the dot breaks and the sample stops meaning anything. Pitch
-    /// stays smaller because comfortable eye-in-head range is narrower
-    /// vertically.
+    /// half-range in degrees. **Square**: vertical extent matches horizontal, so
+    /// the field covers as much of the upper and lower FOV as it does left and
+    /// right. An earlier asymmetric field (±25 × ±18) was cut short vertically on
+    /// the theory that comfortable eye-in-head range is narrower there; in
+    /// practice ±25° is reachable in both axes, and clipping pitch just left the
+    /// top and bottom of the gaze field unmeasured.
+    ///
+    /// ±25° is the practical ceiling: the eye reaches its comfortable rotation
+    /// limit around ±25–30°, past which fixation on the dot breaks and the
+    /// sample stops meaning anything. Downward head pitch is the hardest
+    /// direction (it needs the eye to roll *up*, the most limited direction), so
+    /// the completion threshold is set to absorb losing a whole row.
     var coverageYawAmplitudeDegrees: Double = 25.0
-    var coveragePitchAmplitudeDegrees: Double = 18.0
+    var coveragePitchAmplitudeDegrees: Double = 25.0
 
     /// Whether the corner cells — outside the inscribed ellipse — must also be
     /// covered. True means the required field is the **full rectangle**, so the
@@ -239,33 +246,36 @@ struct MeasurementConfig: Codable, Equatable {
     /// the corners of the field unmeasured, so the heatmap extrapolates there.
     var coverageRequiresCorners: Bool = true
 
-    /// Grid resolution, scaled with the field extent so cells stay ~4.5° wide:
-    /// 11 × 9 over the full rectangle gives 99 required cells with centres
-    /// ~4.5° apart in yaw and ~4.0° in pitch. That bounds the largest possible
-    /// unmeasured hole at ~3° (half the cell diagonal), matching the heatmap
-    /// kernel's `--sigma-min 3` so smoothing interpolates between measured
-    /// cells rather than bridging gaps.
+    /// Grid resolution: 13 × 13 over the square field gives 169 required cells
+    /// of 3.85° each, so the largest possible unmeasured hole — half a cell
+    /// diagonal — is 2.72°, inside the heatmap kernel's `--sigma-min 3`.
     ///
-    /// This is about the practical limit: raising it further costs session time
-    /// roughly linearly (each cell needs its own dwell) and shrinks the
-    /// on-screen cells below the size at which they can be told apart at the
-    /// foveal scale the grid is drawn at.
-    var coverageColumns: Int = 11
-    var coverageRows: Int = 9
+    /// Odd counts on purpose: an even grid puts a cell *boundary* at neutral, so
+    /// the resting pose straddles two cells and the current-cell marker flickers
+    /// between them. Odd gives a centre cell aligned with neutral.
+    ///
+    /// At the observed fill rate (~0.6 s per cell) this is a ~100 s session.
+    /// Raising it further costs time roughly linearly and shrinks the on-screen
+    /// cells below the size at which they can be told apart at the foveal scale
+    /// the grid is drawn at.
+    var coverageColumns: Int = 13
+    var coverageRows: Int = 13
 
     /// Usable samples a cell needs before it counts as covered. At 60 Hz this
     /// is a ~0.13 s dwell requirement, which stops a fast swing through a cell
-    /// from claiming it on one or two frames. Lowered alongside the denser grid
-    /// so total session time stays reasonable: 99 cells × 8 samples ≈ 13 s of
-    /// pure dwell, with travel between cells dominating the real duration.
+    /// from claiming it on one or two frames. Kept low because the grid is dense:
+    /// 169 cells × 8 samples ≈ 23 s of pure dwell, with travel between cells
+    /// dominating the real duration.
     var coverageSamplesPerCell: Int = 8
 
     /// Fraction of required cells that must be covered to finish. Not 1.0: with
     /// the corners required, the most extreme cells demand the largest combined
-    /// rotation and are unreachable for some people; demanding every one would
-    /// stall the session indefinitely. At 99 cells this allows ~10 misses, which
-    /// covers the four corners with room to spare. Stopping early is always safe
-    /// because per-sample coverage is exported.
+    /// rotation (~34° at the square field's corners) and are unreachable for some
+    /// people; demanding every one would stall the session indefinitely. At 169
+    /// cells this allows 16 misses — enough to absorb an entire 13-cell row, which
+    /// is the realistic failure mode (downward pitch needs the eye to roll up,
+    /// its most limited direction). Stopping early is always safe because
+    /// per-sample coverage is exported.
     var coverageCompletionFraction: Double = 0.90
 
     /// How long the opening caption stays up after exploration starts, before
